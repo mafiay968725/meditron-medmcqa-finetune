@@ -1,0 +1,23 @@
+name: meditron7b-finetune
+channels:
+  - defaults
+  - conda-forge
+  - pytorch
+dependencies:
+  - python=3.12
+  - pip
+  - numpy
+  - scipy
+  - scikit-learn
+  - jupyterlab
+  - tqdm
+  - pip:
+      - transformers>=4.36.0
+      - datasets
+      - peft
+      - accelerate
+      - bitsandbytes
+      - huggingface-hub
+      - sentencepiece
+      - protobuf
+
