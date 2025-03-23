@@ -1,0 +1,23 @@
+name: meditron7b-finetune
+channels:
+  - defaults
+  - conda-forge
+  - pytorch
+dependencies:
+  - python=3.12
+  - pip
+  - numpy
+  - scipy
+  - scikit-learn
+  - jupyterlab
+  - tqdm
+
+  - pip:
+      - transformers>=4.36.0
+      - datasets
+      - peft
+      - accelerate
+      # - bitsandbytes            # ❌ Windows 不兼容，建议在 Linux 上使用
+      - huggingface-hub
+      - sentencepiece
+      - protobuf<4.0             # ✅ 限制 protobuf 版本以避免兼容性问题
