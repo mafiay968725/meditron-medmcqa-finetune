@@ -1,0 +1,32 @@
+name: meditron7b-preprocess
+channels:
+  - defaults
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+
+  # ✅ 基础科学计算工具
+  - numpy
+  - scipy
+  - scikit-learn
+
+  # ✅ 可选：用于 Notebook 交互开发
+  - jupyterlab
+  - tqdm
+
+  - pip:
+      # ✅ 用于加载模型 tokenizer（可构建 prompt、编码）
+      - transformers>=4.36.0
+
+      # ✅ 用于加载和构建 Hugging Face 数据集
+      - datasets
+
+      # ✅ 用于管理模型/分词器缓存（必要）
+      - huggingface-hub
+
+      # ✅ 用于支持 tokenizer
+      - sentencepiece
+
+      # ✅ 避免 protobuf 兼容性问题
+      - protobuf<4.0
