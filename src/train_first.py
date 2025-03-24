@@ -51,6 +51,12 @@ def simple_data_collator(batch):
             texts.append(x["input_text"])
         else:
             print("❌ 缺失 input_text 的样本：", x)
+            for i, example in enumerate(train_subset):
+                if "input_text" not in example:
+                    print(f"Sample {i} is missing input_text: {example}")
+                    break
+            else:
+                print("all samples have input_text")
             sys.exit("⛔ 程序已终止，因为有样本缺失 input_text")
 
     tokenized = tokenizer(
