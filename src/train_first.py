@@ -2,7 +2,7 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from transformers import BitsAndBytesConfig
 
-model_name_or_path =  "Meditron/meditron-7b"  # 或者你本地路径
+model_name_or_path =  "/root/meditron-medmcqa-finetune/models/meditron-7b"  # 或者你本地路径
 
 # 1) 加载 Tokenizer
 tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, padding_side="left")
