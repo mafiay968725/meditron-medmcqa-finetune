@@ -39,6 +39,8 @@ def format_example(example):
 
 train_dataset = train_dataset.map(format_example)
 dev_dataset = dev_dataset.map(format_example)
+train_dataset = train_dataset.filter(lambda x: "input_text" in x)
+dev_dataset = dev_dataset.filter(lambda x: "input_text" in x)
 train_subset = train_dataset.select(range(10000)) #构建一个10k的子训练集，进行试验
 
 # 一个简单的 DataCollator，把 input_text -> tokenized
