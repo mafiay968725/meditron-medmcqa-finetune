@@ -179,3 +179,6 @@ cython_debug/
 #忽略.idea或.vscode/文件夹
 .idea/
 .vscode/
+
+#忽略models文件夹
+/models
