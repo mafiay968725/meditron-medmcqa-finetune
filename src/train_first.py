@@ -2,7 +2,7 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from transformers import BitsAndBytesConfig
 
-model_name_or_path =  "/root/meditron-medmcqa-finetune/models/meditron-7b"  # 或者你本地路径
+model_name_or_path =  "/root/meditron-medmcqa-finetune/models/meditron-7b" # 或者你本地路径
 
 # 1) 加载 Tokenizer
 tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, padding_side="left")
@@ -43,9 +43,16 @@ train_subset = train_dataset.select(range(10000)) #构建一个10k的子训练�
 
 # 一个简单的 DataCollator，把 input_text -> tokenized
 from transformers import DefaultDataCollator
-
+import sys
 def simple_data_collator(batch):
-    texts = [x["input_text"] for x in batch]
+    texts = []
+    for x in batch:
+        if "input_text" in x:
+            texts.append(x["input_text"])
+        else:
+            print("❌ 缺失 input_text 的样本：", x)
+            sys.exit("⛔ 程序已终止，因为有样本缺失 input_text")
+
     tokenized = tokenizer(
         texts,
         return_tensors="pt",
