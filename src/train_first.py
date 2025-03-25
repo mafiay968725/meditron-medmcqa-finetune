@@ -1,6 +1,11 @@
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM
 from transformers import BitsAndBytesConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from torch.optim import AdamW
+from torch.utils.data import DataLoader
+from peft import LoraConfig, get_peft_model, TaskType
+import sys
+
 
 model_name_or_path =  "/root/meditron-medmcqa-finetune/models/meditron-7b" # 或者你本地路径
 
@@ -23,6 +28,7 @@ model = AutoModelForCausalLM.from_pretrained(
     device_map="auto"  # 根据显存自动分配到 GPU
 )
 
+
 from datasets import load_from_disk
 
 processed_data = load_from_disk("/root/meditron-medmcqa-finetune/data/processed_dataset")
@@ -37,101 +43,92 @@ def format_example(example):
     text = example["prompt"] + " " + example["label"]  # 例如: "...Answer: C"
     return {"input_text": text}
 
+
+
+
+
+# 3) 设置Lora配置
+lora_config = LoraConfig(
+    r=8,  # Rank of the adapter
+    lora_alpha=16,  # Lora scaling factor
+    lora_dropout=0.1,  # Dropout
+    task_type=TaskType.CAUSAL_LM,  # Causal language modeling
+)
+
+# 4) 构建Lora模型
+model = get_peft_model(model, lora_config)
+model.to("cuda")  # 确保模型在GPU上
+
+# 5) 数据加载器
 train_dataset = train_dataset.map(format_example)
 dev_dataset = dev_dataset.map(format_example)
-train_dataset = train_dataset.filter(lambda x: "input_text" in x)
-dev_dataset = dev_dataset.filter(lambda x: "input_text" in x)
+train_dataset = train_dataset.filter(lambda x: x is not None and "input_text" in x)
+dev_dataset = dev_dataset.filter(lambda x: x is not None and "input_text" in x)
 train_subset = train_dataset.select(range(10000)) #构建一个10k的子训练集，进行试验
 
-# 一个简单的 DataCollator，把 input_text -> tokenized
-from transformers import DefaultDataCollator
-import sys
-def simple_data_collator(batch):
-    texts = []
-    for x in batch:
-        if "input_text" in x:
-            texts.append(x["input_text"])
+from torch.utils.data._utils.collate import default_collate
+def my_collate_fn(batch):
+    # 打印调试信息：检查每个样本是否存在 None 或缺失必须的键
+    for i, sample in enumerate(batch):
+        if sample is None:
+            print(f"样本 {i} 是 None")
         else:
-            print("❌ 缺失 input_text 的样本：", x)
-            for i, example in enumerate(train_subset):
-                if "input_text" not in example:
-                    print(f"Sample {i} is missing input_text: {example}")
-                    break
-            else:
-                print("all samples have input_text")
+            for key, value in sample.items():
+                if value is None:
+                    print(f"样本 {i} 中键 {key} 的值为 None")
+    # 过滤掉不合法的样本：如果一个样本中任一关键字段为 None，则跳过该样本
+    filtered_batch = []
+    for sample in batch:
+        if sample is None:
+            continue
+        # 假设我们要求 "input_text" 和 "label" 必须存在且不为 None
+        if sample.get("input_text") is None or sample.get("label") is None:
+            continue
+        filtered_batch.append(sample)
+
+    if len(filtered_batch) == 0:
+        raise ValueError("当前批次所有样本都无效，请检查数据预处理逻辑")
+
+    return default_collate(filtered_batch)
+# 然后在 DataLoader 中使用：
+train_dataloader = DataLoader(train_subset, batch_size=8, shuffle=True, collate_fn=my_collate_fn)
+dev_dataloader = DataLoader(dev_dataset, batch_size=8, collate_fn=my_collate_fn)
+
+
+# 6) 优化器和学习率调度器
+optimizer = AdamW(model.parameters(), lr=5e-5)
+
+
+# 7) 训练循环
+eval_interval = 200  # 每200个batch评估一次
+epochs = 1
+for epoch in range(epochs):
+    model.train()
+    for i, batch in enumerate(train_dataloader):
+        if "input_text" in batch:
+            inputs = tokenizer(batch["input_text"], return_tensors="pt", padding=True, truncation=True).to("cuda")
+        else:
+            print("❌ 缺失 input_text 的样本：", batch)
             sys.exit("⛔ 程序已终止，因为有样本缺失 input_text")
+        labels = inputs.input_ids
+        outputs = model(**inputs, labels=labels)
+        loss = outputs.loss
 
-    tokenized = tokenizer(
-        texts,
-        return_tensors="pt",
-        padding=True,
-        truncation=True,
-        max_length=512  # 可根据显存调大/调小
-    )
-    # 语言模型的 label 与 input_ids 相同
-    tokenized["labels"] = tokenized["input_ids"].detach().clone()
-    return tokenized
+        # 反向传播和优化
+        loss.backward()
+        optimizer.step()
+        optimizer.zero_grad()
 
-data_collator = simple_data_collator
-
-from peft import LoraConfig, get_peft_model
-from transformers import TrainingArguments, Trainer
-
-# 1) LoRA 配置
-lora_config = LoraConfig(
-    r=8,
-    lora_alpha=32,
-    lora_dropout=0.05,
-    bias="none",
-    task_type="CAUSAL_LM",  # 因为这是一个 Causal Language Model
-)
-
-# 2) 将原模型转换为 PEFT (LoRA) 模型
-model = get_peft_model(model, lora_config)
-model.print_trainable_parameters()  # 看可训练参数数量
-
-# 3) 定义训练参数
-# training_args = TrainingArguments(
-#     output_dir="./lora-meditron7b-checkpoints",
-#     overwrite_output_dir=True,
-#     num_train_epochs=1,               # 先试跑1轮
-#     per_device_train_batch_size=1,    # 视显存调整
-#     per_device_eval_batch_size=1,
-#     gradient_accumulation_steps=16,   # 累积梯度减少显存
-#     evaluation_strategy="steps",      # 或者 "epoch"
-#     eval_steps=500,                   # 多少 step 评估一次
-#     save_steps=500,                   # 多少 step 保存一次
-#     logging_steps=50,
-#     learning_rate=1e-4,               # LoRA下常用 1e-4 ~ 2e-4
-#     fp16=True,                        # 混合精度
-#     optim="adamw_torch",
-#     report_to="none"                  # 不用wandb可这么写
-# )
-training_args = TrainingArguments(
-    output_dir="./models/checkpoints_first",
-    overwrite_output_dir=True,
-    num_train_epochs=1,               # 试跑1轮
-    per_device_train_batch_size=1,    # 视显存调整
-    per_device_eval_batch_size=1,
-    gradient_accumulation_steps=16,   # 累积梯度减少显存
-    evaluation_strategy="epoch",      # 每个epoch结束时评估
-    save_strategy="epoch",            # 每个epoch结束时保存检查点
-    logging_steps=50,
-    learning_rate=1e-4,               # LoRA下常用 1e-4 ~ 2e-4
-    fp16=True,                        # 混合精度
-    optim="adamw_torch",
-    report_to="none"
-)
-
-
-# 4) 构造 Trainer
-trainer = Trainer(
-    model=model,
-    args=training_args,
-    train_dataset=train_subset,#先使用10k条数据试验
-    eval_dataset=dev_dataset,
-    data_collator=data_collator,
-)
-
-# 5) 开始训练
-trainer.train()
+        # 每eval_interval个batch进行一次评估
+        if (i + 1) % eval_interval == 0:
+            model.eval()
+            total_loss = 0
+            with torch.no_grad():
+                for dev_batch in dev_dataloader:
+                    dev_inputs = tokenizer(dev_batch["input_text"], return_tensors="pt", padding=True, truncation=True).to("cuda")
+                    dev_labels = dev_inputs.input_ids
+                    dev_outputs = model(**dev_inputs, labels=dev_labels)
+                    total_loss += dev_outputs.loss.item()
+            avg_loss = total_loss / len(dev_dataloader)
+            print(f"Epoch {epoch + 1}, Step {i + 1}, Dev Loss: {avg_loss}")
+            model.train()
