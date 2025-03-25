@@ -1,53 +1,36 @@
 import torch
-from transformers import BitsAndBytesConfig
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
 from peft import LoraConfig, get_peft_model, TaskType
 import sys
 import os
+from datasets import load_from_disk
+from torch.utils.data._utils.collate import default_collate
 
-
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True" #启用 PyTorch 的更智能显存分配策略
-model_name_or_path =  "/root/meditron-medmcqa-finetune/models/meditron-7b" # 或者你本地路径
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"  # 启用 PyTorch 的更智能显存分配策略
+model_name_or_path = "/root/meditron-medmcqa-finetune/models/meditron-7b"  # 或者你本地路径
 
 # 1) 加载 Tokenizer
 tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, padding_side="left")
-# GPT/LLAMA 系模型通常用左侧 padding
 tokenizer.pad_token = tokenizer.eos_token  # 避免出现警告
 
-# 2) 配置 8-bit 量化
-bnb_config = BitsAndBytesConfig(
-    load_in_8bit=True,          # 8bit 量化
-    llm_int8_threshold=6.0,     # 一些默认阈值
-    llm_int8_has_fp16_weight=False,
-)
-
-# 3) 加载模型 (8-bit)
+# 2) 加载 8-bit 模型
+# 如果没有 8-bit 量化的支持，尝试使用 load_in_8bit 参数来加载模型。否则，可以通过模型提供的量化工具进行加载。
 model = AutoModelForCausalLM.from_pretrained(
     model_name_or_path,
-    quantization_config=bnb_config,
-    device_map="auto"  # 根据显存自动分配到 GPU
+    device_map="auto",  # 根据显存自动分配到 GPU
+    load_in_8bit=True  # 使用 8-bit 量化
 )
 
-
-from datasets import load_from_disk
-
+# 载入处理后的数据集
 processed_data = load_from_disk("/root/meditron-medmcqa-finetune/data/processed_dataset")
-# 里面包含 train/dev/test 分割
 train_dataset = processed_data["train"]
 dev_dataset = processed_data["dev"]
 
 def format_example(example):
-    # 如果你之前在 "prompt" 字段已经包含了 "Answer: ???"
-    # 并且 "label" 是 "A/B/C/D"
-    # 这里直接把它拼到 prompt 后面即可
-    text = example["prompt"] + " " + example["label"]  # 例如: "...Answer: C"
+    text = example["prompt"] + " " + example["label"]
     return {"input_text": text}
-
-
-
-
 
 # 3) 设置Lora配置
 lora_config = LoraConfig(
@@ -67,10 +50,9 @@ train_dataset = train_dataset.map(format_example)
 dev_dataset = dev_dataset.map(format_example)
 train_dataset = train_dataset.filter(lambda x: x is not None and "input_text" in x)
 dev_dataset = dev_dataset.filter(lambda x: x is not None and "input_text" in x)
-train_subset = train_dataset.shuffle(seed=42).select(range(30000)) #构建一个10k的子训练集，进行试验
-dev_subset = dev_dataset.shuffle(seed=42).select(range(1000)) #先用验证集的一部分进行计算
+train_subset = train_dataset.shuffle(seed=42).select(range(30000))  # 构建一个10k的子训练集，进行试验
+dev_subset = dev_dataset.shuffle(seed=42).select(range(1000))  # 先用验证集的一部分进行计算
 
-from torch.utils.data._utils.collate import default_collate
 def my_collate_fn(batch):
     for sample in batch:
         if sample is not None:
@@ -79,20 +61,17 @@ def my_collate_fn(batch):
                 sample["topic_name"] = ""
             if sample.get("exp") is None:
                 sample["exp"] = ""
-    # 过滤掉整体为 None 的样本
     filtered_batch = [sample for sample in batch if sample is not None]
     if len(filtered_batch) == 0:
         raise ValueError("过滤后，当前批次没有有效样本，请检查数据预处理逻辑")
+    return default_collate(filtered_batch)
 
-    return torch.utils.data.dataloader.default_collate(filtered_batch)
 # 然后在 DataLoader 中使用：
 train_dataloader = DataLoader(train_subset, batch_size=8, shuffle=True, collate_fn=my_collate_fn)
 dev_dataloader = DataLoader(dev_subset, batch_size=8, collate_fn=my_collate_fn)
 
-
 # 6) 优化器和学习率调度器
 optimizer = AdamW(model.parameters(), lr=1e-4)
-
 
 # 7) 训练循环
 eval_interval = 900  # 每900次优化后评估一次
@@ -100,7 +79,7 @@ epochs = 5
 best_dev_loss = float("inf")  # 用来保存当前最小的验证集损失
 
 accumulation_steps = 2  # 每2个mini-batch累积一次梯度 => 有效batch_size=8×2=16
-global_step = 0         # 记录真实的优化步数（每完成一次optimizer.step()就+1）
+global_step = 0  # 记录真实的优化步数（每完成一次optimizer.step()就+1）
 
 for epoch in range(epochs):
     model.train()
@@ -130,6 +109,8 @@ for epoch in range(epochs):
             global_step += 1
 
             # 5. 每 eval_interval 个 "优化步" 进行一次评估
+            if global_step % 300 == 0:
+                torch.cuda.empty_cache()
             if global_step % eval_interval == 0:
                 model.eval()
                 total_loss = 0
@@ -148,7 +129,6 @@ for epoch in range(epochs):
                     best_dev_loss = avg_loss
                     model.save_pretrained("/root/meditron-medmcqa-finetune/data/train_4/best")
                     print(f"💾 最优模型已保存，当前 Dev Loss: {avg_loss:.4f}")
-                torch.cuda.empty_cache()
                 model.train()
 
     # 每个 epoch 结束后保存一次模型
