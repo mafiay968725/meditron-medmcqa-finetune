@@ -68,6 +68,13 @@ train_subset = train_dataset.select(range(10000)) #构建一个10k的子训练�
 
 from torch.utils.data._utils.collate import default_collate
 def my_collate_fn(batch):
+    for sample in batch:
+        if sample is not None:
+            # 将 None 替换为默认值，例如空字符串
+            if sample.get("topic_name") is None:
+                sample["topic_name"] = ""
+            if sample.get("exp") is None:
+                sample["exp"] = ""
     # 打印调试信息：检查每个样本是否存在 None 或缺失必须的键
     for i, sample in enumerate(batch):
         if sample is None:
@@ -76,20 +83,12 @@ def my_collate_fn(batch):
             for key, value in sample.items():
                 if value is None:
                     print(f"样本 {i} 中键 {key} 的值为 None")
-    # 过滤掉不合法的样本：如果一个样本中任一关键字段为 None，则跳过该样本
-    filtered_batch = []
-    for sample in batch:
-        if sample is None:
-            continue
-        # 假设我们要求 "input_text" 和 "label" 必须存在且不为 None
-        if sample.get("input_text") is None or sample.get("label") is None:
-            continue
-        filtered_batch.append(sample)
-
+    # 过滤掉整体为 None 的样本
+    filtered_batch = [sample for sample in batch if sample is not None]
     if len(filtered_batch) == 0:
-        raise ValueError("当前批次所有样本都无效，请检查数据预处理逻辑")
+        raise ValueError("过滤后，当前批次没有有效样本，请检查数据预处理逻辑")
 
-    return default_collate(filtered_batch)
+    return torch.utils.data.dataloader.default_collate(filtered_batch)
 # 然后在 DataLoader 中使用：
 train_dataloader = DataLoader(train_subset, batch_size=8, shuffle=True, collate_fn=my_collate_fn)
 dev_dataloader = DataLoader(dev_dataset, batch_size=8, collate_fn=my_collate_fn)
