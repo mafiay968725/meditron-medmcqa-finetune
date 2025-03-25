@@ -3,10 +3,10 @@ from torch.utils.data import DataLoader
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch.nn.functional as F
 import torch.nn as nn
-
-
-#导入dev_dataset
 from datasets import load_from_disk
+import os
+
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True" #启用 PyTorch 的更智能显存分配策略
 
 processed_data = load_from_disk("/root/meditron-medmcqa-finetune/data/processed_dataset")
 dev_dataset = processed_data["dev"]
