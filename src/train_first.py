@@ -58,6 +58,7 @@ lora_config = LoraConfig(
 # 4) 构建Lora模型
 model = get_peft_model(model, lora_config)
 model.to("cuda")  # 确保模型在GPU上
+model.print_trainable_parameters()  # 看可训练参数数量
 
 # 5) 数据加载器
 train_dataset = train_dataset.map(format_example)
@@ -75,14 +76,6 @@ def my_collate_fn(batch):
                 sample["topic_name"] = ""
             if sample.get("exp") is None:
                 sample["exp"] = ""
-    # 打印调试信息：检查每个样本是否存在 None 或缺失必须的键
-    for i, sample in enumerate(batch):
-        if sample is None:
-            print(f"样本 {i} 是 None")
-        else:
-            for key, value in sample.items():
-                if value is None:
-                    print(f"样本 {i} 中键 {key} 的值为 None")
     # 过滤掉整体为 None 的样本
     filtered_batch = [sample for sample in batch if sample is not None]
     if len(filtered_batch) == 0:
@@ -100,7 +93,8 @@ optimizer = AdamW(model.parameters(), lr=5e-5)
 
 # 7) 训练循环
 eval_interval = 200  # 每200个batch评估一次
-epochs = 1
+epochs = 3
+best_dev_loss = float("inf") #用来保存当前最小的验证集损失
 for epoch in range(epochs):
     model.train()
     for i, batch in enumerate(train_dataloader):
@@ -130,4 +124,13 @@ for epoch in range(epochs):
                     total_loss += dev_outputs.loss.item()
             avg_loss = total_loss / len(dev_dataloader)
             print(f"Epoch {epoch + 1}, Step {i + 1}, Dev Loss: {avg_loss}")
+            if avg_loss < best_dev_loss:
+                best_dev_loss = avg_loss
+                model.save_pretrained("/root/meditron-medmcqa-finetune/data/train_first/best")
+                print(f"💾 最优模型已保存，当前 Dev Loss: {avg_loss:.4f}")
             model.train()
+    save_path = f"/root/meditron-medmcqa-finetune/data/train_first/epoch_{epoch + 1}"
+    model.save_pretrained(save_path)
+    if epoch == 0:
+        tokenizer.save_pretrained("/root/meditron-medmcqa-finetune/data/train_first/tokenizer")
+    print(f"✅ 模型已保存至 {save_path}")
