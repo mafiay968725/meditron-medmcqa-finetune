@@ -5,8 +5,10 @@ from torch.optim import AdamW
 from torch.utils.data import DataLoader
 from peft import LoraConfig, get_peft_model, TaskType
 import sys
+import os
 
 
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True" #启用 PyTorch 的更智能显存分配策略
 model_name_or_path =  "/root/meditron-medmcqa-finetune/models/meditron-7b" # 或者你本地路径
 
 # 1) 加载 Tokenizer
@@ -66,6 +68,7 @@ dev_dataset = dev_dataset.map(format_example)
 train_dataset = train_dataset.filter(lambda x: x is not None and "input_text" in x)
 dev_dataset = dev_dataset.filter(lambda x: x is not None and "input_text" in x)
 train_subset = train_dataset.select(range(10000)) #构建一个10k的子训练集，进行试验
+dev_subset = dev_dataset.shuffle(seed=42).select(range(1000)) #先用验证集的一部分进行计算
 
 from torch.utils.data._utils.collate import default_collate
 def my_collate_fn(batch):
@@ -84,7 +87,7 @@ def my_collate_fn(batch):
     return torch.utils.data.dataloader.default_collate(filtered_batch)
 # 然后在 DataLoader 中使用：
 train_dataloader = DataLoader(train_subset, batch_size=8, shuffle=True, collate_fn=my_collate_fn)
-dev_dataloader = DataLoader(dev_dataset, batch_size=8, collate_fn=my_collate_fn)
+dev_dataloader = DataLoader(dev_subset, batch_size=8, collate_fn=my_collate_fn)
 
 
 # 6) 优化器和学习率调度器
@@ -92,7 +95,7 @@ optimizer = AdamW(model.parameters(), lr=5e-5)
 
 
 # 7) 训练循环
-eval_interval = 100  # 每100次优化后评估一次
+eval_interval = 300  # 每300次优化后评估一次
 epochs = 3
 best_dev_loss = float("inf")  # 用来保存当前最小的验证集损失
 
@@ -107,7 +110,7 @@ for epoch in range(epochs):
         # 1. 准备输入
         if "input_text" in batch:
             inputs = tokenizer(batch["input_text"], return_tensors="pt",
-                               padding=True, truncation=True).to("cuda")
+                               padding=True, truncation=True, max_length=1024).to("cuda")
         else:
             print("❌ 缺失 input_text 的样本：", batch)
             sys.exit("⛔ 程序已终止，因为有样本缺失 input_text")
@@ -133,7 +136,7 @@ for epoch in range(epochs):
                 with torch.no_grad():
                     for dev_batch in dev_dataloader:
                         dev_inputs = tokenizer(dev_batch["input_text"],
-                                               return_tensors="pt", padding=True, truncation=True).to("cuda")
+                                               return_tensors="pt", padding=True, truncation=True, max_length=1024).to("cuda")
                         dev_labels = dev_inputs.input_ids
                         dev_outputs = model(**dev_inputs, labels=dev_labels)
                         total_loss += dev_outputs.loss.item()
@@ -145,7 +148,7 @@ for epoch in range(epochs):
                     best_dev_loss = avg_loss
                     model.save_pretrained("/root/meditron-medmcqa-finetune/data/train_2/best")
                     print(f"💾 最优模型已保存，当前 Dev Loss: {avg_loss:.4f}")
-
+                torch.cuda.empty_cache()
                 model.train()
 
     # 每个 epoch 结束后保存一次模型
