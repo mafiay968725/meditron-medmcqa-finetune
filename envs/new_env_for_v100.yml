@@ -1,20 +1,33 @@
-name: meditron7b-finetune
+name: meditron7b-stable
 channels:
   - defaults
   - conda-forge
   - pytorch
 dependencies:
-  - python=3.10  # 使用 Python 3.10
+  - python=3.10
+  - cudatoolkit=11.7
+  - pytorch=2.0.0
+  - torchvision
+  - torchaudio
+  - numpy
+  - scipy
+  - scikit-learn
+  - jupyterlab
+  - tqdm
   - pip
-  - cudatoolkit=11.7  # 安装 CUDA 11.7
-  - pytorch=2.0.0  # 安装 PyTorch 2.0.0
-  - cudnn=8  # 安装 cuDNN 8
+  - cudnn=8
+  - matplotlib
+  - pandas
+  - regex
+  - pyyaml
+  - typing-extensions
   - pip:
-      - transformers>=4.31.0  # 兼容 PyTorch 2.0.0 和 CUDA 11.7 的 transformers 版本
-      - datasets
-      - peft
-      - accelerate==0.20.3  # 使用稳定版本 accelerate
-      - bitsandbytes==0.39.1  # 与 CUDA 11.7 兼容的 bitsandbytes 版本
+      - transformers==4.31.0
+      - bitsandbytes==0.39.1
+      - accelerate==0.20.3
+      - peft==0.5.0
+      - datasets==2.14.5
       - huggingface-hub
       - sentencepiece
-      - protobuf
+      - protobuf==3.20.3
+      - safetensors
