@@ -6,9 +6,10 @@ import torch.nn as nn
 from datasets import load_from_disk
 import os
 
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:64"
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True" #启用 PyTorch 的更智能显存分配策略
 
-processed_data = load_from_disk("/root/meditron-medmcqa-finetune/data/processed_dataset")
+processed_data = load_from_disk("home/ubuntu/meditron-medmcqa-finetune/data/processed_dataset")
 dev_dataset = processed_data["dev"]
 dev_subset = dev_dataset.shuffle(seed=42).select(range(1000)) #先用验证集的一部分进行计算
 
@@ -35,7 +36,7 @@ def compute_per_example_loss(model, tokenizer, texts):
     texts: list of string，每个文本为 "prompt + ' ' + option"
     返回一个 tensor，形状为 (len(texts),)，每个元素为对应文本的 loss
     """
-    inputs = tokenizer(texts, return_tensors="pt", padding=True, truncation=True)
+    inputs = tokenizer(texts, return_tensors="pt", padding=True, truncation=True, max_length=768)
     inputs = {k: v.to(model.device) for k, v in inputs.items()}
     # 前向传播得到 logits
     outputs = model(**inputs, labels=inputs["input_ids"])
@@ -98,14 +99,14 @@ def evaluate_accuracy_batch(model, tokenizer, dev_loader, print_accu_interval = 
 
 # 5. 加载保存好的 LoRA 模型和 tokenizer（示例路径，根据实际调整）
 base_model_path = "/root/meditron-medmcqa-finetune/models/meditron-7b"
-lora_checkpoint_path = "/root/meditron-medmcqa-finetune/data/train_first/epoch_1"
+lora_checkpoint_path = "/root/meditron-medmcqa-finetune/data/train_4/epoch_3"
 
 base_model = AutoModelForCausalLM.from_pretrained(base_model_path, device_map="auto")
 from peft import PeftModel
 model = PeftModel.from_pretrained(base_model, lora_checkpoint_path)
 model.to("cuda")
 
-tokenizer = AutoTokenizer.from_pretrained("/root/meditron-medmcqa-finetune/data/train_first/tokenizer")
+tokenizer = AutoTokenizer.from_pretrained("/root/meditron-medmcqa-finetune/data/train_4/tokenizer")
 tokenizer.pad_token = tokenizer.eos_token #和训练时保持一致
 
 # 6. 计算验证集准确率
