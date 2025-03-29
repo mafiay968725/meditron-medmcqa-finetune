@@ -21,7 +21,7 @@ model_path = base_dir / "models" / "meditron-7b"
 tokenizer = AutoTokenizer.from_pretrained(
     model_path,
     padding_side="left",
-    local_files_only=True  # 加这句！
+    local_files_only=True
 )
 tokenizer.pad_token = tokenizer.eos_token  # 避免出现警告
 
@@ -29,7 +29,7 @@ tokenizer.pad_token = tokenizer.eos_token  # 避免出现警告
 bnb_config = BitsAndBytesConfig(
     load_in_8bit=True,
     llm_int8_threshold=6.0,
-    llm_int8_has_fp16_weight=True,
+    llm_int8_has_fp16_weight=False,
 )
 
 # 3) 加载模型（本地）
