@@ -27,7 +27,7 @@ tokenizer.pad_token = tokenizer.eos_token  # 避免出现警告
 bnb_config = BitsAndBytesConfig(
     load_in_8bit=True,
     llm_int8_threshold=6.0,
-    llm_int8_has_fp16_weight=False,
+    llm_int8_has_fp16_weight=True,
 )
 
 # 3) 加载模型（本地）
@@ -94,8 +94,8 @@ def my_collate_fn(batch):
 
     return torch.utils.data.dataloader.default_collate(filtered_batch)
 # 然后在 DataLoader 中使用：
-train_dataloader = DataLoader(train_subset, batch_size=7, shuffle=True, collate_fn=my_collate_fn)
-dev_dataloader = DataLoader(dev_subset, batch_size=7, collate_fn=my_collate_fn)
+train_dataloader = DataLoader(train_subset, batch_size=6, shuffle=True, collate_fn=my_collate_fn)
+dev_dataloader = DataLoader(dev_subset, batch_size=6, collate_fn=my_collate_fn)
 
 
 # 6) 优化器和学习率调度器
@@ -107,7 +107,7 @@ eval_interval = 900  # 每900次优化后评估一次
 epochs = 5
 best_dev_loss = float("inf")  # 用来保存当前最小的验证集损失
 
-accumulation_steps = 2  # 每2个mini-batch累积一次梯度 => 有效batch_size=8×2=16
+accumulation_steps = 3  # 每3个mini-batch累积一次梯度 => 有效batch_size=8×2=16
 global_step = 0         # 记录真实的优化步数（每完成一次optimizer.step()就+1）
 
 for epoch in range(epochs):
