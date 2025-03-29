@@ -1,3 +1,4 @@
+from pathlib import Path
 import torch
 from transformers import BitsAndBytesConfig
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -7,29 +8,30 @@ from peft import LoraConfig, get_peft_model, TaskType
 import sys
 import os
 
+# 环境变量优化 CUDA 显存
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True" #启用 PyTorch 的更智能显存分配策略
-model_name_or_path =  "/ubuntu/meditron-medmcqa-finetune/models/meditron-7b" # 或者你本地路径
+# ✅ 用 pathlib 指定本地模型路径
+base_dir = Path("/home/ubuntu/meditron-medmcqa-finetune")  # 修改为你的项目根目录
+model_path = base_dir / "models" / "meditron-7b"
 
-# 1) 加载 Tokenizer
-tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, padding_side="left")
-# GPT/LLAMA 系模型通常用左侧 padding
+# 1) 加载 Tokenizer（本地）
+tokenizer = AutoTokenizer.from_pretrained(model_path, padding_side="left")
 tokenizer.pad_token = tokenizer.eos_token  # 避免出现警告
 
-# 2) 配置 8-bit 量化
+# 2) 8-bit 量化配置
 bnb_config = BitsAndBytesConfig(
-    load_in_8bit=True,          # 8bit 量化
-    llm_int8_threshold=6.0,     # 一些默认阈值
+    load_in_8bit=True,
+    llm_int8_threshold=6.0,
     llm_int8_has_fp16_weight=False,
 )
 
-# 3) 加载模型 (8-bit)
+# 3) 加载模型（本地）
 model = AutoModelForCausalLM.from_pretrained(
-    model_name_or_path,
+    model_path,
     quantization_config=bnb_config,
-    device_map="auto"  # 根据显存自动分配到 GPU
+    device_map="auto"
 )
-
 
 from datasets import load_from_disk
 
