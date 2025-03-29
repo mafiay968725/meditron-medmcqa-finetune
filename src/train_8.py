@@ -16,7 +16,11 @@ base_dir = Path("/home/ubuntu/meditron-medmcqa-finetune")  # 修改为你的项�
 model_path = base_dir / "models" / "meditron-7b"
 
 # 1) 加载 Tokenizer（本地）
-tokenizer = AutoTokenizer.from_pretrained(model_path, padding_side="left")
+tokenizer = AutoTokenizer.from_pretrained(
+    model_path,
+    padding_side="left",
+    local_files_only=True  # 加这句！
+)
 tokenizer.pad_token = tokenizer.eos_token  # 避免出现警告
 
 # 2) 8-bit 量化配置
@@ -30,7 +34,8 @@ bnb_config = BitsAndBytesConfig(
 model = AutoModelForCausalLM.from_pretrained(
     model_path,
     quantization_config=bnb_config,
-    device_map="auto"
+    device_map="auto",
+    local_files_only=True  # 加这句！
 )
 
 from datasets import load_from_disk
