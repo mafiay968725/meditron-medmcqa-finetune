@@ -96,8 +96,8 @@ def my_collate_fn(batch):
 
     return torch.utils.data.dataloader.default_collate(filtered_batch)
 # 然后在 DataLoader 中使用：
-train_dataloader = DataLoader(train_subset, batch_size=6, shuffle=True, collate_fn=my_collate_fn)
-dev_dataloader = DataLoader(dev_subset, batch_size=6, collate_fn=my_collate_fn)
+train_dataloader = DataLoader(train_subset, batch_size=4, shuffle=True, collate_fn=my_collate_fn)
+dev_dataloader = DataLoader(dev_subset, batch_size=4, collate_fn=my_collate_fn)
 
 
 # 6) 优化器和学习率调度器
@@ -109,7 +109,7 @@ eval_interval = 900  # 每900次优化后评估一次
 epochs = 5
 best_dev_loss = float("inf")  # 用来保存当前最小的验证集损失
 
-accumulation_steps = 3  # 每3个mini-batch累积一次梯度 => 有效batch_size=8×2=16
+accumulation_steps = 4  # 每4个mini-batch累积一次梯度 => 有效batch_size=8×2=16
 global_step = 0         # 记录真实的优化步数（每完成一次optimizer.step()就+1）
 
 for epoch in range(epochs):
@@ -120,7 +120,7 @@ for epoch in range(epochs):
         # 1. 准备输入
         if "input_text" in batch:
             inputs = tokenizer(batch["input_text"], return_tensors="pt",
-                               padding=True, truncation=True, max_length=1024).to("cuda")
+                               padding=True, truncation=True, max_length = 768).to("cuda")
         else:
             print("❌ 缺失 input_text 的样本：", batch)
             sys.exit("⛔ 程序已终止，因为有样本缺失 input_text")
@@ -148,7 +148,7 @@ for epoch in range(epochs):
                 with torch.no_grad():
                     for dev_batch in dev_dataloader:
                         dev_inputs = tokenizer(dev_batch["input_text"],
-                                               return_tensors="pt", padding=True, truncation=True, max_length=1024).to("cuda")
+                                               return_tensors="pt", padding=True, truncation=True, max_length = 768).to("cuda")
                         dev_labels = dev_inputs.input_ids
                         dev_outputs = model(**dev_inputs, labels=dev_labels)
                         total_loss += dev_outputs.loss.item()
@@ -163,7 +163,7 @@ for epoch in range(epochs):
                 model.train()
 
     # 每个 epoch 结束后保存一次模型
-    save_path = f"/home/ubuntu/meditron-medmcqa-finetune/data/train_8/epoch_{epoch + 1}"
+    save_path = base_dir / "data" / "train_8" / f"epoch_{epoch + 1}"
     model.save_pretrained(save_path, safe_serialization=True)
     if epoch == 0:
         tokenizer.save_pretrained("/home/ubuntu/meditron-medmcqa-finetune/data/train_8/tokenizer")
