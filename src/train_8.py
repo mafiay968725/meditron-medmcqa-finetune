@@ -40,7 +40,8 @@ model = AutoModelForCausalLM.from_pretrained(
 
 from datasets import load_from_disk
 
-processed_data = load_from_disk("/ubuntu/meditron-medmcqa-finetune/data/processed_dataset")
+processed_data = load_from_disk("/home/ubuntu/meditron-medmcqa-finetune/data/processed_dataset")
+
 # 里面包含 train/dev/test 分割
 train_dataset = processed_data["train"]
 dev_dataset = processed_data["dev"]
@@ -155,13 +156,13 @@ for epoch in range(epochs):
                 # 保存最优模型
                 if avg_loss < best_dev_loss:
                     best_dev_loss = avg_loss
-                    model.save_pretrained("/ubuntu/meditron-medmcqa-finetune/data/train_8/best")
+                    model.save_pretrained("/home/ubuntu/meditron-medmcqa-finetune/data/train_8/best")
                     print(f"💾 最优模型已保存，当前 Dev Loss: {avg_loss:.4f}")
                 model.train()
 
     # 每个 epoch 结束后保存一次模型
-    save_path = f"/ubuntu/meditron-medmcqa-finetune/data/train_8/epoch_{epoch + 1}"
+    save_path = f"/home/ubuntu/meditron-medmcqa-finetune/data/train_8/epoch_{epoch + 1}"
     model.save_pretrained(save_path)
     if epoch == 0:
-        tokenizer.save_pretrained("/ubuntu/meditron-medmcqa-finetune/data/train_8/tokenizer")
+        tokenizer.save_pretrained("/home/ubuntu/meditron-medmcqa-finetune/data/train_8/tokenizer")
     print(f"✅ 模型已保存至 {save_path}")
