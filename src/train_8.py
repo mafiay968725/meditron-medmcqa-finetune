@@ -7,8 +7,10 @@ from torch.utils.data import DataLoader
 from peft import LoraConfig, get_peft_model, TaskType
 import sys
 import os
+from peft import PeftModel
 
 # 环境变量优化 CUDA 显存
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:64"
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 # ✅ 用 pathlib 指定本地模型路径
@@ -156,13 +158,13 @@ for epoch in range(epochs):
                 # 保存最优模型
                 if avg_loss < best_dev_loss:
                     best_dev_loss = avg_loss
-                    model.save_pretrained("/home/ubuntu/meditron-medmcqa-finetune/data/train_8/best")
+                    model.save_pretrained("/home/ubuntu/meditron-medmcqa-finetune/data/train_8/best", safe_serialization=True)
                     print(f"💾 最优模型已保存，当前 Dev Loss: {avg_loss:.4f}")
                 model.train()
 
     # 每个 epoch 结束后保存一次模型
     save_path = f"/home/ubuntu/meditron-medmcqa-finetune/data/train_8/epoch_{epoch + 1}"
-    model.save_pretrained(save_path)
+    model.save_pretrained(save_path, safe_serialization=True)
     if epoch == 0:
         tokenizer.save_pretrained("/home/ubuntu/meditron-medmcqa-finetune/data/train_8/tokenizer")
     print(f"✅ 模型已保存至 {save_path}")
