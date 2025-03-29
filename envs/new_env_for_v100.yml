@@ -1,7 +1,6 @@
 name: pj_env
 channels:
   - pytorch
-  - nvidia
   - conda-forge
   - defaults
 
@@ -12,8 +11,7 @@ dependencies:
   - scipy
   - scikit-learn
   - tqdm
-  - pytorch=2.1.2
-  - pytorch-cuda=11.8
+  - pytorch=2.1.2  # 与 CUDA 12 兼容
   - torchvision
   - torchaudio
   - pip:
