@@ -9,7 +9,7 @@ import os
 
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True" #启用 PyTorch 的更智能显存分配策略
-model_name_or_path =  "/root/meditron-medmcqa-finetune/models/meditron-7b" # 或者你本地路径
+model_name_or_path =  "/ubuntu/meditron-medmcqa-finetune/models/meditron-7b" # 或者你本地路径
 
 # 1) 加载 Tokenizer
 tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, padding_side="left")
@@ -33,7 +33,7 @@ model = AutoModelForCausalLM.from_pretrained(
 
 from datasets import load_from_disk
 
-processed_data = load_from_disk("/root/meditron-medmcqa-finetune/data/processed_dataset")
+processed_data = load_from_disk("/ubuntu/meditron-medmcqa-finetune/data/processed_dataset")
 # 里面包含 train/dev/test 分割
 train_dataset = processed_data["train"]
 dev_dataset = processed_data["dev"]
@@ -95,7 +95,7 @@ optimizer = AdamW(model.parameters(), lr=7e-5)
 
 
 # 7) 训练循环
-eval_interval = 900  # 每300次优化后评估一次
+eval_interval = 900  # 每900次优化后评估一次
 epochs = 5
 best_dev_loss = float("inf")  # 用来保存当前最小的验证集损失
 
@@ -130,7 +130,7 @@ for epoch in range(epochs):
             global_step += 1
 
             # 5. 每 eval_interval 个 "优化步" 进行一次评估
-            if global_step % 300 == 0:
+            if global_step % 100 == 0:
                 torch.cuda.empty_cache()
             if global_step % eval_interval == 0:
                 model.eval()
@@ -148,13 +148,13 @@ for epoch in range(epochs):
                 # 保存最优模型
                 if avg_loss < best_dev_loss:
                     best_dev_loss = avg_loss
-                    model.save_pretrained("/root/meditron-medmcqa-finetune/data/train_8/best")
+                    model.save_pretrained("/ubuntu/meditron-medmcqa-finetune/data/train_8/best")
                     print(f"💾 最优模型已保存，当前 Dev Loss: {avg_loss:.4f}")
                 model.train()
 
     # 每个 epoch 结束后保存一次模型
-    save_path = f"/root/meditron-medmcqa-finetune/data/train_8/epoch_{epoch + 1}"
+    save_path = f"/ubuntu/meditron-medmcqa-finetune/data/train_8/epoch_{epoch + 1}"
     model.save_pretrained(save_path)
     if epoch == 0:
-        tokenizer.save_pretrained("/root/meditron-medmcqa-finetune/data/train_8/tokenizer")
+        tokenizer.save_pretrained("/ubuntu/meditron-medmcqa-finetune/data/train_8/tokenizer")
     print(f"✅ 模型已保存至 {save_path}")
