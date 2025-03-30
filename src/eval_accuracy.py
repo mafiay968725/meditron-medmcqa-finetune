@@ -9,7 +9,9 @@ import os
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:64"
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True" #启用 PyTorch 的更智能显存分配策略
 
-processed_data = load_from_disk("home/ubuntu/meditron-medmcqa-finetune/data/processed_dataset")
+from datasets import load_from_disk
+
+processed_data = load_from_disk("/home/ubuntu/meditron-medmcqa-finetune/data/processed_dataset")
 dev_dataset = processed_data["dev"]
 #dev_subset = dev_dataset.shuffle(seed=42).select(range(1000)) #先用验证集的一部分进行计算
 dev_subset = dev_dataset #使用整个验证集
