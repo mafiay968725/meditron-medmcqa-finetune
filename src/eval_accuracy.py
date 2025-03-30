@@ -99,14 +99,14 @@ def evaluate_accuracy_batch(model, tokenizer, dev_loader, print_accu_interval = 
 
 # 5. 加载保存好的 LoRA 模型和 tokenizer（示例路径，根据实际调整）
 base_model_path = "/root/meditron-medmcqa-finetune/models/meditron-7b"
-lora_checkpoint_path = "/root/meditron-medmcqa-finetune/data/train_4/epoch_3"
+lora_checkpoint_path = "/root/meditron-medmcqa-finetune/data/train_9/best"
 
 base_model = AutoModelForCausalLM.from_pretrained(base_model_path, device_map="auto")
 from peft import PeftModel
 model = PeftModel.from_pretrained(base_model, lora_checkpoint_path)
 model.to("cuda")
 
-tokenizer = AutoTokenizer.from_pretrained("/root/meditron-medmcqa-finetune/data/train_4/tokenizer")
+tokenizer = AutoTokenizer.from_pretrained("/root/meditron-medmcqa-finetune/data/train_9/tokenizer")
 tokenizer.pad_token = tokenizer.eos_token #和训练时保持一致
 
 # 6. 计算验证集准确率
