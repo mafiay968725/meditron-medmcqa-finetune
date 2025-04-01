@@ -239,6 +239,7 @@ def train_model(lora_rank=8, lora_alpha=16, learning_rate=1e-4):
 # study.optimize(objective, n_trials=20)
 
 score=train_model()
+print(score)
 
 
 
