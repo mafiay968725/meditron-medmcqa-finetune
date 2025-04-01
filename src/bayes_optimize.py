@@ -75,7 +75,7 @@ def train_model(lora_rank=8, lora_alpha=16, learning_rate=1e-4):
     dev_dataset = dev_dataset.map(format_example)
     train_dataset = train_dataset.filter(lambda x: x is not None and "input_text" in x)
     dev_dataset = dev_dataset.filter(lambda x: x is not None and "input_text" in x)
-    train_subset = train_dataset.shuffle(seed=42).select(range(1000)) #先改成1000进行测试
+    train_subset = train_dataset.shuffle(seed=42).select(range(10000))
     dev_subset = dev_dataset.shuffle(seed=42).select(range(1000))  # 先用验证集的一部分进行计算
 
 
@@ -218,28 +218,28 @@ def train_model(lora_rank=8, lora_alpha=16, learning_rate=1e-4):
     accuracy = evaluate_accuracy_batch(model, tokenizer, dev_loader)
     return accuracy
 
-# import optuna
-# def objective(trial):
-#     lora_rank = trial.suggest_categorical("lora_rank", [4, 8, 16])
-#     lora_alpha = trial.suggest_categorical("lora_alpha", [16, 32, 64])
-#     lr = trial.suggest_float("learning_rate", 1e-5, 3e-4, log=True)
-#     score = train_model(
-#         lora_rank=lora_rank,
-#         lora_alpha=lora_alpha,
-#         learning_rate=lr,
-#     )
-#     return score
-# # 定义优化目标方向（准确率最大化 → maximize）
-# study = optuna.create_study(
-#     direction="maximize",  # 如果你的 score 是准确率
-#     study_name="meditron_lora_tuning",  # 可选：命名实验
-# )
-#
-# # 开始调参（尝试 20 组参数）
-# study.optimize(objective, n_trials=20)
+import optuna
+def objective(trial):
+    lora_rank = trial.suggest_categorical("lora_rank", [4, 8, 16])
+    lora_alpha = trial.suggest_categorical("lora_alpha", [16, 32, 64])
+    lr = trial.suggest_float("learning_rate", 1e-5, 3e-4, log=True)
+    score = train_model(
+        lora_rank=lora_rank,
+        lora_alpha=lora_alpha,
+        learning_rate=lr,
+    )
+    print(
+        f"Trial {trial.number}: params={{'lora_rank': {lora_rank}, 'lora_alpha': {lora_alpha}, 'lr': {lr:.6f}}}, score={score:.4f}")
+    return score
+# 定义优化目标方向（准确率最大化 → maximize）
+study = optuna.create_study(
+    direction="maximize",  # 如果你的 score 是准确率
+    study_name="meditron_lora_tuning",  # 可选：命名实验
+)
 
-score=train_model()
-print(score)
+# 开始调参（尝试 20 组参数）
+study.optimize(objective, n_trials=20, show_progress_bar=True)
+
 
 
 
