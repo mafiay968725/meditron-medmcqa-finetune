@@ -218,27 +218,54 @@ def train_model(lora_rank=8, lora_alpha=16, learning_rate=1e-4):
     accuracy = evaluate_accuracy_batch(model, tokenizer, dev_loader)
     return accuracy
 
+
 import optuna
+import joblib
+from pathlib import Path
+
+# ✅ 设置保存路径
+log_dir = Path("/home/ubuntu/meditron-medmcqa-finetune/data/log")
+log_dir.mkdir(parents=True, exist_ok=True)  # 如果不存在就创建
+
+# ✅ 设定数据库和文件名
+db_path = log_dir / "optuna_lora.db"
+pkl_path = log_dir / "optuna_lora_study.pkl"
+
 def objective(trial):
     lora_rank = trial.suggest_categorical("lora_rank", [4, 8, 16])
     lora_alpha = trial.suggest_categorical("lora_alpha", [16, 32, 64])
     lr = trial.suggest_float("learning_rate", 1e-5, 3e-4, log=True)
+
     score = train_model(
         lora_rank=lora_rank,
         lora_alpha=lora_alpha,
         learning_rate=lr,
     )
+
     print(
         f"Trial {trial.number}: params={{'lora_rank': {lora_rank}, 'lora_alpha': {lora_alpha}, 'lr': {lr:.6f}}}, score={score:.4f}")
     return score
-# 定义优化目标方向（准确率最大化 → maximize）
+
+# ✅ 使用 SQLite 存储，保存至指定路径
 study = optuna.create_study(
-    direction="maximize",  # 如果你的 score 是准确率
-    study_name="meditron_lora_tuning",  # 可选：命名实验
+    direction="maximize",
+    study_name="meditron_lora_tuning",
+    storage=f"sqlite:///{db_path}",
+    load_if_exists=True
 )
 
-# 开始调参（尝试 20 组参数）
-study.optimize(objective, n_trials=20, show_progress_bar=True)
+try:
+    study.optimize(objective, n_trials=20, show_progress_bar=True)
+except KeyboardInterrupt:
+    print("🛑 手动中断调参，已保存当前进度。")
+
+# ✅ 输出并保存
+print("🎯 最优参数:", study.best_params)
+print(f"✅ 最优准确率: {study.best_value:.4f}")
+
+# ✅ 保存为 .pkl 文件
+joblib.dump(study, pkl_path)
+
 
 
 
