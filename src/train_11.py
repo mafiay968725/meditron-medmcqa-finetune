@@ -54,12 +54,12 @@ def train_model(lora_rank=8, lora_alpha=16, learning_rate=1e-4):
     dev_dataset = processed_data["dev"]
 
     def format_example(example):
-        # 如果你之前在 "prompt" 字段已经包含了 "Answer: ???"
-        # 并且 "label" 是 "A/B/C/D"
-        # 这里直接把它拼到 prompt 后面即可
-        text = example["prompt"] + " " + example["label"]# 例如: "...Answer: C"
-        if len(text) > 900:
-            text = text[:890] + "\nAnswer: " + example["label"]
+        prompt = example["prompt"]
+        label = example["label"]
+        if len(prompt) + len(label) + 1 > 900:
+            # 截断 prompt，保留末尾答案
+            prompt = prompt[:890]
+        text = prompt + "\nAnswer: " + label
         return {"input_text": text}
 
     # 5) 构建Lora模型
