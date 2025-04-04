@@ -11,7 +11,7 @@ os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True" #启用 PyTor
 
 from datasets import load_from_disk
 
-processed_data = load_from_disk("/home/ubuntu/meditron-medmcqa-finetune/data/processed_dataset")
+processed_data = load_from_disk("/home/ubuntu/meditron-medmcqa-finetune/data/processed_dataset_deepseek")
 dev_dataset = processed_data["dev"]
 dev_subset = dev_dataset.shuffle(seed=42).select(range(1000)) #先用验证集的一部分进行计算
 #dev_subset = dev_dataset #使用整个验证集
@@ -101,14 +101,14 @@ def evaluate_accuracy_batch(model, tokenizer, dev_loader, print_accu_interval = 
 
 # 5. 加载保存好的 LoRA 模型和 tokenizer（示例路径，根据实际调整）
 base_model_path = "/home/ubuntu/meditron-medmcqa-finetune/models/meditron-7b"
-lora_checkpoint_path = "/home/ubuntu/meditron-medmcqa-finetune/data/train_9/best"
+lora_checkpoint_path = "/home/ubuntu/meditron-medmcqa-finetune/data/train_12/epoch_3"
 
 base_model = AutoModelForCausalLM.from_pretrained(base_model_path, device_map="auto")
 from peft import PeftModel
 model = PeftModel.from_pretrained(base_model, lora_checkpoint_path)
 model.to("cuda")
 
-tokenizer = AutoTokenizer.from_pretrained("/home/ubuntu/meditron-medmcqa-finetune/data/train_9/tokenizer")
+tokenizer = AutoTokenizer.from_pretrained("/home/ubuntu/meditron-medmcqa-finetune/data/train_12/tokenizer")
 tokenizer.pad_token = tokenizer.eos_token #和训练时保持一致
 
 # 6. 计算验证集准确率
