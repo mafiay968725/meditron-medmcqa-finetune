@@ -14,7 +14,6 @@ import torch.nn as nn
 import csv
 from pathlib import Path
 
-from src.train_12 import save_path
 
 
 def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4):
