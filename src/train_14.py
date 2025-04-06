@@ -1,4 +1,3 @@
-from pathlib import Path
 import torch
 from transformers import BitsAndBytesConfig
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -13,6 +12,17 @@ import torch.nn.functional as F
 import torch.nn as nn
 import csv
 from pathlib import Path
+import random
+import numpy as np
+
+
+def set_seed(seed=42):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+set_seed(42)
 
 
 
@@ -146,6 +156,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4):
     return accuracy
 
 
+set_seed(42) #固定随机种子，
 
 #记录每一轮结束时的dev_loss
 def log_dev_loss_to_csv(epoch, lora_rank, dropout, lr, dev_loss, log_path):
@@ -166,10 +177,9 @@ def log_final_accuracy_to_csv(lora_rank, dropout, lr, accuracy, log_path):
 
 # ✅ Top 5 hyperparameter sets based on previous results
 top_configs = [
-    {"lora_rank": 16, "dropout": 0.2703, "lr": 0.000131},  # ✅ Trial 16
-    {"lora_rank": 8,  "dropout": 0.1335, "lr": 0.000190},  # ✅ Trial 9
+    {"lora_rank": 16, "dropout": 0.1521, "lr": 0.000155},  # ✅ Trial 5
+    {"lora_rank": 16, "dropout": 0.1840, "lr": 0.000080},  # ✅ Trial 13
 ]
-
 
 
 # ✅ Loop over top configs
