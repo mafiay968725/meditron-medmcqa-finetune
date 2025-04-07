@@ -202,7 +202,6 @@ def log_final_accuracy_to_csv(lora_rank, dropout, lr, accuracy, log_path, is_fin
 
 # ✅ Top 5 hyperparameter sets based on previous results
 top_configs = [
-    {"lora_rank": 16, "dropout": 0.24, "lr": 0.0001},
     {"lora_rank": 16, "dropout": 0.24, "lr": 0.00013}
 ]
 
