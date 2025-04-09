@@ -217,7 +217,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4):
         # 遍历 batch 中每个样本
         for i in range(batch_size):
             row_ids = input_ids[i].tolist()
-            start_idx = _find_answer_start_by_tokens(tokenizer, row_ids, answer_str="Answer:")
+            start_idx = _find_answer_start_by_tokens(tokenizer, row_ids, answer_str=" Answer:")
 
             if start_idx is not None:
                 end_of_answer_prefix = start_idx + len(answer_tokens)
