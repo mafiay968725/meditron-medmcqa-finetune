@@ -217,9 +217,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4):
         # 遍历 batch 中每个样本
         for i in range(batch_size):
             row_ids = input_ids[i].tolist()
-
-            # 找到 answer_tokens 在 row_ids 中的起始下标
-            start_idx = _find_answer_start(row_ids, answer_tokens)
+            start_idx = _find_answer_start_by_tokens(tokenizer, row_ids, answer_str="Answer:")
 
             if start_idx is not None:
                 end_of_answer_prefix = start_idx + len(answer_tokens)
@@ -228,19 +226,23 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4):
             else:
                 pass
             if start_idx is None:
+                print("Answer token ids:", answer_token_ids)
+                print("Example row:", tokenizer.convert_ids_to_tokens(input_ids[i].tolist()))
                 print(f"[Warning] Sample {i} has no 'Answer:' token.")
         return masked_labels
 
-    def _find_answer_start(row_ids, answer_tokens):
+    def _find_answer_start_by_tokens(tokenizer, input_ids, answer_str="Answer:"):
         """
-        在 row_ids 这条序列里（形如 [101, 234, 567, ...]），
-        找到 answer_tokens 子序列的第一个出现位置。如果找不到，返回 None
+        直接通过 tokenizer 分词结果中的字符串匹配来找 "Answer:" 起始 index。
+        更稳，不依赖 token ids 完全一致。
         """
-        n = len(row_ids)
-        m = len(answer_tokens)
-        for start in range(n - m + 1):
-            if row_ids[start:start + m] == answer_tokens:
-                return start
+        tokens = tokenizer.convert_ids_to_tokens(input_ids)
+        answer_tokens = tokenizer.tokenize(answer_str)
+
+        n, m = len(tokens), len(answer_tokens)
+        for i in range(n - m + 1):
+            if tokens[i:i + m] == answer_tokens:
+                return i
         return None
 
     # ✅ Optimizer
@@ -319,7 +321,6 @@ def log_final_accuracy_to_csv(lora_rank, dropout, lr, accuracy, log_path, is_fin
 
 # ✅ Top 5 hyperparameter sets based on previous results
 top_configs = [
-    {"lora_rank": 16, "dropout": 0.24, "lr": 0.0001},
     {"lora_rank": 16, "dropout": 0.24, "lr": 0.00013}
 ]
 
