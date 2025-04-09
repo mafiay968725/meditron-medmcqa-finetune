@@ -217,7 +217,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4):
         # 遍历 batch 中每个样本
         for i in range(batch_size):
             row_ids = input_ids[i].tolist()
-            start_idx = _find_answer_start_by_tokens(tokenizer, row_ids, answer_str=" Answer:")
+            start_idx = _find_answer_start_by_tokens(tokenizer, row_ids, answer_str="Answer")
 
             if start_idx is not None:
                 end_of_answer_prefix = start_idx + len(answer_tokens)
@@ -231,7 +231,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4):
                 print(f"[Warning] Sample {i} has no 'Answer:' token.")
         return masked_labels
 
-    def _find_answer_start_by_tokens(tokenizer, input_ids, answer_str=" Answer:"):
+    def _find_answer_start_by_tokens(tokenizer, input_ids, answer_str="Answer"):
         """
         直接通过 tokenizer 分词结果中的字符串匹配来找 "Answer:" 起始 index。
         更稳，不依赖 token ids 完全一致。
