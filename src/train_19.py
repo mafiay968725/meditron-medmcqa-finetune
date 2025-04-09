@@ -266,7 +266,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4):
     accumulation_steps = 5
     global_step = 0
 
-    answer_token_ids = tokenizer.encode("Answer:", add_special_tokens=False)
+    answer_token_ids = tokenizer.encode("Answer", add_special_tokens=False)
     for epoch in range(epochs):
         model.train()
         optimizer.zero_grad()
