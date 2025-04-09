@@ -217,12 +217,11 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4):
         # 遍历 batch 中每个样本
         for i in range(batch_size):
             row_ids = input_ids[i].tolist()
-            start_idx = _find_answer_start_by_tokens(tokenizer, row_ids, answer_str="Answer")
+            start_idx = _find_answer_pair_by_tokens(tokenizer, row_ids)
 
             if start_idx is not None:
-                end_of_answer_prefix = start_idx + len(answer_tokens)
-                # 将 end_of_answer_prefix 之前的全部位置设为 -100
-                masked_labels[i, :end_of_answer_prefix] = -100
+                end_of_answer_prefix = start_idx + 2  # 因为是 Answer + : 两个 token
+                masked_labels[i, :end_of_answer_prefix] = -100 #Answer: 前的全部mask
             else:
                 pass
             if start_idx is None:
@@ -239,17 +238,26 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4):
 
         return masked_labels
 
-    def _find_answer_start_by_tokens(tokenizer, input_ids, answer_str="Answer"):
-        """
-        直接通过 tokenizer 分词结果中的字符串匹配来找 "Answer:" 起始 index。
-        更稳，不依赖 token ids 完全一致。
-        """
-        tokens = tokenizer.convert_ids_to_tokens(input_ids)
-        answer_tokens = tokenizer.tokenize(answer_str)
+    # def _find_answer_start_by_tokens(tokenizer, input_ids, answer_str="Answer"):
+    #     """
+    #     直接通过 tokenizer 分词结果中的字符串匹配来找 "Answer:" 起始 index。
+    #     更稳，不依赖 token ids 完全一致。
+    #     """
+    #     tokens = tokenizer.convert_ids_to_tokens(input_ids)
+    #     answer_tokens = tokenizer.tokenize(answer_str)
+    #
+    #     n, m = len(tokens), len(answer_tokens)
+    #     for i in range(n - m + 1):
+    #         if tokens[i:i + m] == answer_tokens:
+    #             return i
+    #     return None
 
-        n, m = len(tokens), len(answer_tokens)
+    def _find_answer_pair_by_tokens(tokenizer, input_ids):
+        tokens = tokenizer.convert_ids_to_tokens(input_ids)
+        target_seq = ["Answer", ":"]
+        n, m = len(tokens), len(target_seq)
         for i in range(n - m + 1):
-            if tokens[i:i + m] == answer_tokens:
+            if tokens[i:i + m] == target_seq:
                 return i
         return None
 
