@@ -274,17 +274,15 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4):
             if global_step % 300 == 0:
                 torch.cuda.empty_cache()
 
-        # ✅ epoch 结束时评估
-        model.eval()
+        # # ✅ epoch 结束时评估
+        # model.eval()
+        # save_path = base_dir / "data" / "log" / "train_19.csv"
+        # if epoch >= 0:
+        #     accuracy = evaluate_model_accuracy(model, tokenizer, dev_eval_subset)
+        #     print(f"Epoch {epoch + 1},  Accuracy: {accuracy:.4f}")
+        #     log_final_accuracy_to_csv(epoch+1, lora_rank, dropout, learning_rate, accuracy, save_path,0)
 
-
-        save_path = base_dir / "data" / "log" / "train_19.csv"
-        if epoch >= 0:
-            accuracy = evaluate_model_accuracy(model, tokenizer, dev_eval_subset)
-            print(f"Epoch {epoch + 1},  Accuracy: {accuracy:.4f}")
-            log_final_accuracy_to_csv(epoch+1, lora_rank, dropout, learning_rate, accuracy, save_path,0)
-
-    accuracy = evaluate_model_accuracy(model,tokenizer, dev_final_subset) #训练完成后，评估最终的准确率
+    accuracy = evaluate_model_accuracy(model,tokenizer, dev_eval_subset) #训练完成后，评估最终的准确率
     save_path = base_dir / "data" / "log" / "train_19.csv"
     log_final_accuracy_to_csv(epochs, lora_rank, dropout, learning_rate, accuracy, save_path, 1)
     return accuracy
