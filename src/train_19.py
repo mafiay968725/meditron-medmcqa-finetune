@@ -231,7 +231,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4):
                 print(f"[Warning] Sample {i} has no 'Answer:' token.")
         return masked_labels
 
-    def _find_answer_start_by_tokens(tokenizer, input_ids, answer_str="Answer:"):
+    def _find_answer_start_by_tokens(tokenizer, input_ids, answer_str=" Answer:"):
         """
         直接通过 tokenizer 分词结果中的字符串匹配来找 "Answer:" 起始 index。
         更稳，不依赖 token ids 完全一致。
@@ -244,6 +244,18 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4):
             if tokens[i:i + m] == answer_tokens:
                 return i
         return None
+
+    # def _find_answer_start(row_ids, answer_tokens):
+    #     """
+    #     在 row_ids 这条序列里（形如 [101, 234, 567, ...]），
+    #     找到 answer_tokens 子序列的第一个出现位置。如果找不到，返回 None
+    #     """
+    #     n = len(row_ids)
+    #     m = len(answer_tokens)
+    #     for start in range(n - m + 1):
+    #         if row_ids[start:start + m] == answer_tokens:
+    #             return start
+    #     return None
 
     # ✅ Optimizer
     from torch.optim import AdamW
