@@ -227,8 +227,16 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4):
                 pass
             if start_idx is None:
                 print("Answer token ids:", answer_token_ids)
-                print("Example row:", tokenizer.convert_ids_to_tokens(input_ids[i].tolist()))
+                print("Example row (raw tokens):", tokenizer.convert_ids_to_tokens(row_ids))
+
+                # ✅ 新增：打印 token 的 ascii 表示，方便发现不可见字符
+                print("Example row (ascii tokens):")
+                tokens = tokenizer.convert_ids_to_tokens(row_ids)
+                for idx, tk in enumerate(tokens):
+                    print(f"  {idx:03d}: {ascii(tk)}")  # 补齐位数更方便看
+
                 print(f"[Warning] Sample {i} has no 'Answer:' token.")
+
         return masked_labels
 
     def _find_answer_start_by_tokens(tokenizer, input_ids, answer_str="Answer"):
