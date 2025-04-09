@@ -107,7 +107,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4):
 
         dev_loader = DataLoader(dev_dataset, batch_size=2, shuffle=False, collate_fn=dev_collate_fn)
 
-        def compute_per_example_loss_after_answer(model, tokenizer, texts, answer_token_ids, max_length=768):
+        def compute_per_example_loss_after_answer(model, tokenizer, texts,max_length=768):
             """
             在验证/推断阶段，对输入的多条文本，只计算从“Answer:”开始的token的平均loss，
             其它部分（问句、选项列表等）设为 -100 不纳入CE损失。
@@ -128,7 +128,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4):
             attention_mask = inputs["attention_mask"]
 
             # ✅ 2. 直接复用训练时的 masking 函数！
-            labels = mask_labels_before_answer(input_ids, tokenizer, answer_token_ids)
+            labels = mask_labels_before_answer(input_ids, tokenizer)
 
             # 4) 放到 GPU
             input_ids = input_ids.to(model.device)
@@ -187,7 +187,6 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4):
                     model,
                     tokenizer,
                     candidate_texts,  # e.g.  batch_size * 4 个句子
-                    answer_token_ids,
                     max_length=768
                 )
                 losses = losses.view(batch_size, 4) # reshape 回 [batch_size, 4]
@@ -197,7 +196,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4):
                 total += len(labels)
         return correct / total if total else 0
 
-    def mask_labels_before_answer(input_ids: torch.Tensor, tokenizer, answer_tokens: list) -> torch.Tensor:
+    def mask_labels_before_answer(input_ids: torch.Tensor, tokenizer) -> torch.Tensor:
         """
         对 batch 内的每个样本，在 input_ids 中找到 `Answer:` 的起始位置，
         将该位置之前（含“Answer:”本身）所有 tokens 的 label 设为 -100，以便只对答案主体部分计算loss。
@@ -225,32 +224,18 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4):
             else:
                 pass
             if start_idx is None:
-                print("Answer token ids:", answer_token_ids)
-                print("Example row (raw tokens):", tokenizer.convert_ids_to_tokens(row_ids))
-
-                # ✅ 新增：打印 token 的 ascii 表示，方便发现不可见字符
-                print("Example row (ascii tokens):")
-                tokens = tokenizer.convert_ids_to_tokens(row_ids)
-                for idx, tk in enumerate(tokens):
-                    print(f"  {idx:03d}: {ascii(tk)}")  # 补齐位数更方便看
-
+                # print("Answer token ids:", answer_token_ids)
+                # print("Example row (raw tokens):", tokenizer.convert_ids_to_tokens(row_ids))
+                #
+                # # ✅ 新增：打印 token 的 ascii 表示，方便发现不可见字符
+                # print("Example row (ascii tokens):")
+                # tokens = tokenizer.convert_ids_to_tokens(row_ids)
+                # for idx, tk in enumerate(tokens):
+                #     print(f"  {idx:03d}: {ascii(tk)}")  # 补齐位数更方便看
                 print(f"[Warning] Sample {i} has no 'Answer:' token.")
 
         return masked_labels
 
-    # def _find_answer_start_by_tokens(tokenizer, input_ids, answer_str="Answer"):
-    #     """
-    #     直接通过 tokenizer 分词结果中的字符串匹配来找 "Answer:" 起始 index。
-    #     更稳，不依赖 token ids 完全一致。
-    #     """
-    #     tokens = tokenizer.convert_ids_to_tokens(input_ids)
-    #     answer_tokens = tokenizer.tokenize(answer_str)
-    #
-    #     n, m = len(tokens), len(answer_tokens)
-    #     for i in range(n - m + 1):
-    #         if tokens[i:i + m] == answer_tokens:
-    #             return i
-    #     return None
 
     def _find_answer_pair_by_tokens(tokenizer, input_ids):
         tokens = tokenizer.convert_ids_to_tokens(input_ids)
@@ -261,18 +246,6 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4):
                 return i
         return None
 
-    # def _find_answer_start(row_ids, answer_tokens):
-    #     """
-    #     在 row_ids 这条序列里（形如 [101, 234, 567, ...]），
-    #     找到 answer_tokens 子序列的第一个出现位置。如果找不到，返回 None
-    #     """
-    #     n = len(row_ids)
-    #     m = len(answer_tokens)
-    #     for start in range(n - m + 1):
-    #         if row_ids[start:start + m] == answer_tokens:
-    #             return start
-    #     return None
-
     # ✅ Optimizer
     from torch.optim import AdamW
     optimizer = AdamW(model.parameters(), lr=learning_rate)
@@ -282,7 +255,6 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4):
     accumulation_steps = 5
     global_step = 0
 
-    answer_token_ids = tokenizer.encode("Answer", add_special_tokens=False)
     for epoch in range(epochs):
         model.train()
         optimizer.zero_grad()
@@ -291,7 +263,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4):
             input_ids = inputs["input_ids"].to(model.device)
             attention_mask = inputs["attention_mask"].to(model.device)
             # 根据需要将 "Answer:" 之前的部分mask掉
-            labels = mask_labels_before_answer(input_ids, tokenizer, answer_token_ids).to(model.device)
+            labels = mask_labels_before_answer(input_ids, tokenizer).to(model.device)
             # 将注意力掩码也要带上
             outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
             (outputs.loss / accumulation_steps).backward()
@@ -304,24 +276,17 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4):
 
         # ✅ epoch 结束时评估
         model.eval()
-        total_loss = 0
-        with torch.no_grad():
-            for dev_batch in dev_eval_dataloader:
-                dev_inputs = tokenizer(dev_batch["input_text"], return_tensors="pt", padding=True, truncation=True, max_length=896).to("cuda")
-                dev_outputs = model(**dev_inputs, labels=dev_inputs.input_ids)
-                total_loss += dev_outputs.loss.item()
-        avg_loss = total_loss / len(dev_eval_dataloader)
+
 
         save_path = base_dir / "data" / "log" / "train_19.csv"
-        log_dev_loss_to_csv(epoch + 1, lora_rank, dropout, learning_rate, avg_loss, save_path)
         if epoch >= 0:
             accuracy = evaluate_model_accuracy(model, tokenizer, dev_eval_subset)
-            print(f"Epoch {epoch + 1}, Dev Loss: {avg_loss:.4f}, Accuracy: {accuracy:.4f}")
-            log_final_accuracy_to_csv(lora_rank, dropout, learning_rate, accuracy, save_path,0)
+            print(f"Epoch {epoch + 1},  Accuracy: {accuracy:.4f}")
+            log_final_accuracy_to_csv(epoch+1, lora_rank, dropout, learning_rate, accuracy, save_path,0)
 
     accuracy = evaluate_model_accuracy(model,tokenizer, dev_final_subset) #训练完成后，评估最终的准确率
     save_path = base_dir / "data" / "log" / "train_19.csv"
-    log_final_accuracy_to_csv(lora_rank, dropout, learning_rate, accuracy, save_path, 1)
+    log_final_accuracy_to_csv(epochs, lora_rank, dropout, learning_rate, accuracy, save_path, 1)
     return accuracy
 
 
@@ -336,33 +301,57 @@ def log_dev_loss_to_csv(epoch, lora_rank, dropout, lr, dev_loss, log_path):
             writer.writerow(["epoch", "lora_rank", "dropout", "lr", "dev_loss", "accuracy"])  # 表头
         writer.writerow([epoch, lora_rank, dropout, lr, f"{dev_loss:.4f}", ""])
 #记录训练结束后，在验证集上的准确率
-def log_final_accuracy_to_csv(lora_rank, dropout, lr, accuracy, log_path, is_final=0):
+def log_final_accuracy_to_csv(epoch, lora_rank, dropout, lr, accuracy, log_path, is_final=0):
     file_exists = Path(log_path).exists()
     with open(log_path, mode="a", newline='') as f:
         writer = csv.writer(f)
         if not file_exists:
             writer.writerow(["epoch", "lora_rank", "dropout", "lr", "dev_loss", "accuracy"])
         if not is_final:
-            writer.writerow(["accuracy", lora_rank, dropout, lr, "", f"{accuracy:.4f}"])
+            writer.writerow([epoch, lora_rank, dropout, lr, "", f"{accuracy:.4f}"])
         else:
             writer.writerow(["final_accuracy", lora_rank, dropout, lr, "", f"{accuracy:.4f}"])
 
-# ✅ Top 5 hyperparameter sets based on previous results
-top_configs = [
-    {"lora_rank": 16, "dropout": 0.24, "lr": 0.00013}
-]
+import optuna
+import joblib
+from pathlib import Path
+
+# ✅ 设置保存路径
+log_dir = Path("/home/ubuntu/meditron-medmcqa-finetune/data/log")
+log_dir.mkdir(parents=True, exist_ok=True)  # 如果不存在就创建
+
+# ✅ 设定数据库和文件名
+db_path = log_dir / "train_19.db"
 
 
-# ✅ Loop over top configs
-for i, cfg in enumerate(top_configs):
-    print(f"\n🚀 Running Trial {i} with lora_rank={cfg['lora_rank']}, dropout={cfg['dropout']}, lr={cfg['lr']:.6f}")
+def objective(trial):
+    dropout = trial.suggest_float("dropout",0.1, 0.3)
+    lr = trial.suggest_float("learning_rate", 5e-6, 2e-4, log=True)
+
     score = train_model(
-        lora_rank=cfg["lora_rank"],
-        dropout=cfg["dropout"],
-        learning_rate=cfg["lr"],
+        lora_rank=16,
+        dropout=dropout,
+        learning_rate=lr,
     )
-    print(f"✅ Trial {i}: params={{'lora_rank': {cfg['lora_rank']}, 'dropout': {cfg['dropout']}, 'lr': {cfg['lr']:.6f}}}, score={score:.4f}")
 
+    print(
+        f"Trial {trial.number}: params={{'lora_rank': {16}, 'dropout': {dropout}, 'lr': {lr:.6f}}}, score={score:.4f}")
+    return score
 
+# ✅ 使用 SQLite 存储，保存至指定路径
+study = optuna.create_study(
+    direction="maximize",
+    study_name="meditron_lora_tuning",
+    storage=f"sqlite:///{db_path}",
+    load_if_exists=True
+)
 
+try:
+    study.optimize(objective, n_trials=20, show_progress_bar=True)
+except KeyboardInterrupt:
+    print("🛑 手动中断调参，已保存当前进度。")
+
+# ✅ 输出并保存
+print("🎯 最优参数:", study.best_params)
+print(f"✅ 最优准确率: {study.best_value:.4f}")
 
