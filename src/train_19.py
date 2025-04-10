@@ -323,9 +323,8 @@ db_path = log_dir / "train_19.db"
 
 
 def objective(trial):
-    dropout = trial.suggest_float("dropout",0.1, 0.3)
-    lr = trial.suggest_float("learning_rate", 5e-6, 2e-4, log=True)
-
+    lr = trial.suggest_float("learning_rate", 7e-5, 1.7e-4, log=True)
+    dropout = trial.suggest_float("dropout",0.15,0.25)
     score = train_model(
         lora_rank=16,
         dropout=dropout,
@@ -333,7 +332,7 @@ def objective(trial):
     )
 
     print(
-        f"Trial {trial.number}: params={{'lora_rank': {16}, 'dropout': {dropout}, 'lr': {lr:.6f}}}, score={score:.4f}")
+        f"Trial {trial.number}: params={{'lora_rank': {16}, 'dropout': {0.24}, 'lr': {lr:.6f}}}, score={score:.4f}")
     return score
 
 # ✅ 使用 SQLite 存储，保存至指定路径
@@ -345,7 +344,7 @@ study = optuna.create_study(
 )
 
 try:
-    study.optimize(objective, n_trials=20, show_progress_bar=True)
+    study.optimize(objective, n_trials=8, show_progress_bar=True)
 except KeyboardInterrupt:
     print("🛑 手动中断调参，已保存当前进度。")
 
