@@ -58,8 +58,8 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, soft_
         raw_options = [example["opa"], example["opb"], example["opc"], example["opd"]]
         options = [f"{prefix}{text}" for prefix, text in zip(option_prefix, raw_options)]
 
-        first_choice = example("first_choice")
-        second_choice = example("second_choice")
+        first_choice = example["first_choice"]
+        second_choice = example["second_choice"]
         if soft_label_type == 0: #(0.75,0.15,0.05)
             soft_label = example["soft_label"]
         elif soft_label_type == 1: #(0.6,0.3,0.05,0.05)
