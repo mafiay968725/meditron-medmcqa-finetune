@@ -323,7 +323,7 @@ db_path = log_dir / "train_19.db"
 
 
 def objective(trial):
-    lr = trial.suggest_float("learning_rate", 7e-5, 1.7e-4, log=True)
+    lr = trial.suggest_float("learning_rate", 5e-5, 1.7e-4, log=True)
     dropout = trial.suggest_float("dropout",0.1,0.25)
     score = train_model(
         lora_rank=16,
@@ -344,7 +344,7 @@ study = optuna.create_study(
 )
 
 try:
-    study.optimize(objective, n_trials=8, show_progress_bar=True)
+    study.optimize(objective, n_trials=20, show_progress_bar=True)
 except KeyboardInterrupt:
     print("🛑 手动中断调参，已保存当前进度。")
 
