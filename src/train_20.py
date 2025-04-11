@@ -84,10 +84,8 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, soft_
             "soft_label": soft_label,
         }
 
+
     train_dataset = train_dataset.map(format_example)
-    dev_dataset = dev_dataset.map(format_example)
-    train_dataset = train_dataset.filter(lambda x: x is not None and "input_text" in x)
-    dev_dataset = dev_dataset.filter(lambda x: x is not None and "input_text" in x)
     # 划分 train_eval_subset：从训练集划出 1000 条用于训练中评估准确率（early stopping）
     train_dataset = train_dataset.shuffle(seed=42)
     dev_dataset = dev_dataset.shuffle(seed=42)
@@ -129,7 +127,6 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, soft_
             "soft_labels": soft_labels
         }
     train_dataloader = DataLoader(train_subset, batch_size=1, shuffle=True, collate_fn=my_collate_fn)
-    dev_eval_dataloader = DataLoader(dev_eval_subset, batch_size=1, shuffle=True, collate_fn=my_collate_fn)
 
     # ✅ 准确率评估函数
     def evaluate_model_accuracy(model, tokenizer, dev_dataset):
