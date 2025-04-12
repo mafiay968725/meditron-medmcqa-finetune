@@ -126,7 +126,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
     device = accelerator.device
 
     # ✅ 准确率评估函数
-    def evaluate_model_accuracy(model, tokenizer, dev_dataset):
+    def evaluate_model_accuracy(model, tokenizer, dev_dataset, accelerator):
         def dev_collate_fn(batch):
 
             return {
@@ -140,14 +140,14 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
 
         dev_loader = DataLoader(dev_dataset, batch_size=4, shuffle=False, collate_fn=dev_collate_fn)
 
-        def compute_per_example_loss_after_answer(model, tokenizer, texts,max_length=768):
+        def compute_per_example_loss_after_answer(model, tokenizer, texts,max_length, device):
             # 1. 分词
-            inputs = tokenizer(texts, return_tensors="pt", padding=True, truncation=True, max_length=768)
-            input_ids = inputs["input_ids"]
-            attention_mask = inputs["attention_mask"]
+            inputs = tokenizer(texts, return_tensors="pt", padding=True, truncation=True, max_length=max_length)
+            input_ids = inputs["input_ids"].to(device)
+            attention_mask = inputs["attention_mask"].to(device)
 
             # ✅ 2. 直接复用训练时的 masking 函数！
-            labels = mask_labels_before_answer(input_ids, tokenizer)
+            labels = mask_labels_before_answer(input_ids, tokenizer).to(device)
 
             # 4) 放到 GPU
             input_ids = input_ids.to(device)
@@ -183,8 +183,10 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
 
         torch.cuda.empty_cache()
         model.eval()
-        device = torch.device("cuda")
-        total, correct = 0, 0
+        device = accelerator.device
+
+        all_preds, all_labels = [], []
+
         with torch.no_grad():
             for batch in dev_loader:
                 prompts = batch["prompts"]
@@ -194,27 +196,32 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
                 opc = batch["opc"]
                 opd = batch["opd"]
                 all_options = ["A", "B", "C", "D"]
-                option_texts = [opa, opb, opc, opd]  # 每个都是 list[str]，长度为 batch_size
+                option_texts = [opa, opb, opc, opd]
                 batch_size = len(prompts)
-                candidate_texts = [] # 构造 candidate_texts：每个样本 4 个句子，总共 batch_size × 4 个句子
 
+                candidate_texts = []
                 for i in range(batch_size):
                     for j, opt in enumerate(all_options):
-                        option_content = option_texts[j][i]  # opa[i], opb[i], ...
-                        full_text = f"{prompts[i]} {opt}: {option_content}"
+                        full_text = f"{prompts[i]} {opt}: {option_texts[j][i]}"
                         candidate_texts.append(full_text)
+
                 losses = compute_per_example_loss_after_answer(
-                    model,
-                    tokenizer,
-                    candidate_texts,  # e.g.  batch_size * 4 个句子
-                    max_length=768
+                    model, tokenizer, candidate_texts, max_length=768, device=device
                 )
-                losses = losses.view(batch_size, 4) # reshape 回 [batch_size, 4]
+                losses = losses.view(batch_size, 4)
                 preds = torch.argmin(losses, dim=1).cpu().numpy()
-                pred_labels = [all_options[i] for i in preds]
-                correct += sum(p == g for p, g in zip(pred_labels, labels))
-                total += len(labels)
-        return correct / total if total else 0
+
+                all_preds.extend(preds)
+                all_labels.extend([{"A": 0, "B": 1, "C": 2, "D": 3}[lbl] for lbl in labels])  # 转数字
+
+        # ✅ Gather 所有 GPU 的预测与标签
+        all_preds = accelerator.gather_for_metrics(torch.tensor(all_preds))
+        all_labels = accelerator.gather_for_metrics(torch.tensor(all_labels))
+
+        correct = (all_preds == all_labels).sum().item()
+        total = all_preds.size(0)
+        accuracy = correct / total if total > 0 else 0
+        return accuracy
 
     def mask_labels_before_answer(input_ids: torch.Tensor, tokenizer) -> torch.Tensor:
         batch_size, seq_len = input_ids.size()
@@ -376,11 +383,11 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
         # model.eval()
         # save_path = base_dir / "data" / "log" / "train_22.csv"
         # if epoch >= 0:
-        #     accuracy = evaluate_model_accuracy(model, tokenizer, dev_eval_subset)
+        #     accuracy = evaluate_model_accuracy(model, tokenizer, dev_eval_subset, accelerator)
         #     print(f"Epoch {epoch + 1},  Accuracy: {accuracy:.4f}")
         #     log_final_accuracy_to_csv(epoch+1, lora_rank, dropout, learning_rate, accuracy, save_path,0)
 
-    accuracy = evaluate_model_accuracy(model,tokenizer, dev_eval_subset) #训练完成后，评估最终的准确率
+    accuracy = evaluate_model_accuracy(model,tokenizer, dev_eval_subset, accelerator) #训练完成后，评估最终的准确率
     save_path = base_dir / "data" / "log" / "train_22.csv"
     log_final_accuracy_to_csv(epochs, lora_rank, dropout, learning_rate, accuracy, save_path, 1)
     return accuracy
