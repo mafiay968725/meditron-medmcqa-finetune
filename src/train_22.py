@@ -27,7 +27,8 @@ def set_seed(seed=42):
 
 set_seed(42)
 
-
+accumulation_steps = 8
+accelerator = Accelerator(gradient_accumulation_steps=accumulation_steps)
 
 def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
 
@@ -104,8 +105,6 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
         }
 
 
-    accumulation_steps = 8
-    accelerator = Accelerator(gradient_accumulation_steps=accumulation_steps)
     device_map = {"": accelerator.local_process_index}
 
     model = AutoModelForCausalLM.from_pretrained(
@@ -449,19 +448,18 @@ def objective(trial):
         f"Trial {trial.number}: params={{'lora_rank': {16}, 'dropout': {0.15}, 'lr': {lr:.6f}, 'alpha': {alpha:.2f}}}, score={score:.4f}")
     return score
 
-# ✅ 使用 SQLite 存储，保存至指定路径
-study = optuna.create_study(
-    direction="maximize",
-    study_name="meditron_lora_tuning",
-    storage=f"sqlite:///{db_path}",
-    load_if_exists=True
-)
+if accelerator.is_main_process:
+    study = optuna.create_study(
+        direction="maximize",
+        study_name="meditron_lora_tuning",
+        storage=f"sqlite:///{db_path}",
+        load_if_exists=True
+    )
+    try:
+        study.optimize(objective, n_trials=10, show_progress_bar=True)
+    except KeyboardInterrupt:
+        print("🛑 手动中断调参，已保存当前进度。")
+    print("🎯 最优参数:", study.best_params)
+    print(f"✅ 最优准确率: {study.best_value:.4f}")
 
-try:
-    study.optimize(objective, n_trials=10, show_progress_bar=True)
-except KeyboardInterrupt:
-    print("🛑 手动中断调参，已保存当前进度。")
-
-# ✅ 输出并保存
-print("🎯 最优参数:", study.best_params)
-print(f"✅ 最优准确率: {study.best_value:.4f}")
+accelerator.wait_for_everyone()
