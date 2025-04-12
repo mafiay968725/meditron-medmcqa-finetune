@@ -442,7 +442,7 @@ study = optuna.create_study(
 )
 
 try:
-    study.optimize(objective, n_trials=20, show_progress_bar=True)
+    study.optimize(objective, n_trials=10, show_progress_bar=True)
 except KeyboardInterrupt:
     print("🛑 手动中断调参，已保存当前进度。")
 
