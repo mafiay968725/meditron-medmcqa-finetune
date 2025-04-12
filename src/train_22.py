@@ -14,6 +14,10 @@ import csv
 from pathlib import Path
 import random
 import numpy as np
+from accelerate import Accelerator
+from torch.optim import AdamW
+
+from src.train_10 import accumulation_steps
 
 
 def set_seed(seed=42):
@@ -80,15 +84,6 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
     dev_eval_subset = dev_dataset.select(range(1000))  # ⬅️ 每轮评估准确率
     dev_final_subset = dev_dataset.select(range(1000, len(dev_dataset)))  # ⬅️ 最终评估准确率
 
-
-
-    # ✅ 构建 Lora 模型
-    lora_config = LoraConfig(r=lora_rank, lora_alpha=2 * lora_rank, lora_dropout=dropout, task_type=TaskType.CAUSAL_LM)
-    model = get_peft_model(model, lora_config)
-    model = nn.DataParallel(model)
-    model = model.cuda()
-    device = torch.device("cuda")
-
     # ✅ collate_fn
     def my_collate_fn(batch):
         # batch: list[dict], 每个dict包含 prompt/options/hard_label/soft_label
@@ -100,8 +95,8 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
                 new_batch.append(ex)
         if len(new_batch) == 0:
             raise ValueError("没有有效样本")
-        prompts = [ex["prompt"] for ex in new_batch]          # list of str
-        options_list = [ex["options"] for ex in new_batch]    # list of list of str
+        prompts = [ex["prompt"] for ex in new_batch]  # list of str
+        options_list = [ex["options"] for ex in new_batch]  # list of list of str
         hard_labels = [ex["hard_label"] for ex in new_batch]  # list of int
         soft_labels = [ex["soft_label"] for ex in new_batch]  # list of list of float
 
@@ -115,7 +110,21 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
             "hard_labels": hard_labels,
             "soft_labels": soft_labels
         }
+
+    # ✅ 构建 Lora 模型
+    lora_config = LoraConfig(r=lora_rank, lora_alpha=2 * lora_rank, lora_dropout=dropout, task_type=TaskType.CAUSAL_LM)
+    model = get_peft_model(model, lora_config)
+
     train_dataloader = DataLoader(train_subset, batch_size=4, shuffle=True, collate_fn=my_collate_fn)
+
+    optimizer = AdamW(model.parameters(), lr=learning_rate)
+
+    accumulation_steps = 4
+    accelerator = Accelerator(gradient_accumulation_steps=accumulation_steps)
+    model, optimizer, train_dataloader = accelerator.prepare(
+        model, optimizer, train_dataloader
+    )
+    device = accelerator.device
 
     # ✅ 准确率评估函数
     def evaluate_model_accuracy(model, tokenizer, dev_dataset):
@@ -311,13 +320,10 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
 
         return loss
 
-    # ✅ Optimizer
-    from torch.optim import AdamW
-    optimizer = AdamW(model.parameters(), lr=learning_rate)
+
 
     # ✅ Training loop
     epochs = 2
-    accumulation_steps = 4
     global_step = 0
 
     for epoch in range(epochs):
@@ -353,21 +359,17 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
             # 利用你写好的函数，把 prompt/解释部分标签设成 -100，只保留 "Answer" 之类需要计算loss的地方
             labels = mask_labels_before_answer(input_ids, tokenizer).to(device)
 
-            # 计算 (1-alpha)*CE + alpha*KL
-            loss = compute_ce_kl_loss(
-                model=model,
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                labels=labels,
-                hard_labels=hard_labels,
-                soft_labels=soft_labels,
-                alpha=alpha  # or any
-            )
-
-            # 梯度累积
-            (loss / accumulation_steps).backward()
-
-            if (i + 1) % accumulation_steps == 0:
+            with accelerator.accumulate(model):
+                loss = compute_ce_kl_loss(
+                    model=model,
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    labels=labels,
+                    hard_labels=hard_labels,
+                    soft_labels=soft_labels,
+                    alpha=alpha  # or any
+                )
+                loss.backward()
                 optimizer.step()
                 optimizer.zero_grad()
 
