@@ -201,6 +201,8 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
                 all_options = ["A", "B", "C", "D"]
                 option_texts = [opa, opb, opc, opd]
                 batch_size = len(prompts)
+                if len(prompts) == 0:
+                    continue  # 跳过空 batch
 
                 candidate_texts = []
                 for i in range(batch_size):
@@ -212,14 +214,18 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
                     model, tokenizer, candidate_texts, max_length=768, device=device
                 )
                 losses = losses.view(batch_size, 4)
-                preds = torch.argmin(losses, dim=1).cpu().numpy()
 
+                preds = torch.argmin(losses, dim=1).tolist()
                 all_preds.extend(preds)
-                all_labels.extend([{"A": 0, "B": 1, "C": 2, "D": 3}[lbl] for lbl in labels])  # 转数字
+                label_ids = [{"A": 0, "B": 1, "C": 2, "D": 3}[lbl] for lbl in labels]
+                all_labels.extend(label_ids)
 
-        # ✅ Gather 所有 GPU 的预测与标签
-        all_preds = accelerator.gather_for_metrics(torch.tensor(all_preds))
-        all_labels = accelerator.gather_for_metrics(torch.tensor(all_labels))
+        all_preds = accelerator.gather_for_metrics(
+            torch.tensor(all_preds, dtype=torch.long, device=accelerator.device)
+        ).cpu()
+        all_labels = accelerator.gather_for_metrics(
+            torch.tensor(all_labels, dtype=torch.long, device=accelerator.device)
+        )
 
         correct = (all_preds == all_labels).sum().item()
         total = all_preds.size(0)
