@@ -87,6 +87,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
     model = get_peft_model(model, lora_config)
     model = nn.DataParallel(model)
     model = model.cuda()
+    device = next(model.parameters()).device
 
     # ✅ collate_fn
     def my_collate_fn(batch):
@@ -141,9 +142,9 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
             labels = mask_labels_before_answer(input_ids, tokenizer)
 
             # 4) 放到 GPU
-            input_ids = input_ids.to(model.device)
-            attention_mask = attention_mask.to(model.device)
-            labels = labels.to(model.device)
+            input_ids = input_ids.to(device)
+            attention_mask = attention_mask.to(device)
+            labels = labels.to(device)
 
             # 5) 前向传播 (不使用 outputs.loss，手动拿 logits 计算更灵活)
             outputs = model(
@@ -174,6 +175,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
 
         torch.cuda.empty_cache()
         model.eval()
+        device = next(model.parameters()).device
         total, correct = 0, 0
         with torch.no_grad():
             for batch in dev_loader:
@@ -324,8 +326,8 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
         for i, batch in enumerate(train_dataloader):
             prompts = batch["prompts"]  # list[str]
             options_list = batch["options"]  # list[list[str]]
-            hard_labels = batch["hard_labels"].to(model.device)  # [batch_size]
-            soft_labels = batch["soft_labels"].to(model.device)  # [batch_size,4]
+            hard_labels = batch["hard_labels"].to(device)# [batch_size]
+            soft_labels = batch["soft_labels"].to(device)  # [batch_size,4]
 
             # 把 batch_size 条数据每条4个选项 → 拼成 batch_size*4 个文本
             input_texts = []
@@ -345,11 +347,11 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
                 max_length=896
             )
 
-            input_ids = inputs["input_ids"].to(model.device)  # [batch_size*4, seq_len]
-            attention_mask = inputs["attention_mask"].to(model.device)
+            input_ids = inputs["input_ids"].to(device)  # [batch_size*4, seq_len]
+            attention_mask = inputs["attention_mask"].to(device)
 
             # 利用你写好的函数，把 prompt/解释部分标签设成 -100，只保留 "Answer" 之类需要计算loss的地方
-            labels = mask_labels_before_answer(input_ids, tokenizer).to(model.device)
+            labels = mask_labels_before_answer(input_ids, tokenizer).to(device)
 
             # 计算 (1-alpha)*CE + alpha*KL
             loss = compute_ce_kl_loss(
