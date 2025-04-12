@@ -118,7 +118,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
     lora_config = LoraConfig(r=lora_rank, lora_alpha=2 * lora_rank, lora_dropout=dropout, task_type=TaskType.CAUSAL_LM)
     model = get_peft_model(model, lora_config)
 
-    train_dataloader = DataLoader(train_subset, batch_size=2, shuffle=True, collate_fn=my_collate_fn)
+    train_dataloader = DataLoader(train_subset, batch_size=1, shuffle=True, collate_fn=my_collate_fn)
 
     optimizer = AdamW(model.parameters(), lr=learning_rate)
 
