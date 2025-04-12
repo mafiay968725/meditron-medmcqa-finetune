@@ -45,13 +45,6 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
 
     # ✅ 加载 8-bit 模型（本地）
     bnb_config = BitsAndBytesConfig(load_in_8bit=True, llm_int8_threshold=6.0, llm_int8_has_fp16_weight=False)
-    model = AutoModelForCausalLM.from_pretrained(
-        model_path,
-        quantization_config=bnb_config,
-        device_map=None,  # ❗ 不指定device map，避免只绑一张卡
-        local_files_only=True
-    )
-
 
 
     # ✅ 加载数据
@@ -110,7 +103,17 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
             "soft_labels": soft_labels
         }
 
-    # ✅ 构建 Lora 模型
+
+    accumulation_steps = 4
+    accelerator = Accelerator(gradient_accumulation_steps=accumulation_steps)
+    device_map = {"": accelerator.local_process_index}
+
+    model = AutoModelForCausalLM.from_pretrained(
+        model_path,
+        quantization_config=bnb_config,
+        device_map=device_map,
+        local_files_only=True
+    )
     lora_config = LoraConfig(r=lora_rank, lora_alpha=2 * lora_rank, lora_dropout=dropout, task_type=TaskType.CAUSAL_LM)
     model = get_peft_model(model, lora_config)
 
@@ -118,12 +121,12 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
 
     optimizer = AdamW(model.parameters(), lr=learning_rate)
 
-    accumulation_steps = 4
-    accelerator = Accelerator(gradient_accumulation_steps=accumulation_steps)
+
     model, optimizer, train_dataloader = accelerator.prepare(
         model, optimizer, train_dataloader
     )
     device = accelerator.device
+
 
     # ✅ 准确率评估函数
     def evaluate_model_accuracy(model, tokenizer, dev_dataset, accelerator):
@@ -222,6 +225,15 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
         total = all_preds.size(0)
         accuracy = correct / total if total > 0 else 0
         return accuracy
+    
+    def _find_answer_pair_by_tokens(tokenizer, input_ids):
+        tokens = tokenizer.convert_ids_to_tokens(input_ids)
+        target_seq = ["Answer", ":"]
+        n, m = len(tokens), len(target_seq)
+        for i in range(n - m + 1):
+            if tokens[i:i + m] == target_seq:
+                return i
+        return None
 
     def mask_labels_before_answer(input_ids: torch.Tensor, tokenizer) -> torch.Tensor:
         batch_size, seq_len = input_ids.size()
@@ -243,14 +255,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
         return masked_labels
 
 
-    def _find_answer_pair_by_tokens(tokenizer, input_ids):
-        tokens = tokenizer.convert_ids_to_tokens(input_ids)
-        target_seq = ["Answer", ":"]
-        n, m = len(tokens), len(target_seq)
-        for i in range(n - m + 1):
-            if tokens[i:i + m] == target_seq:
-                return i
-        return None
+
 
     def compute_ce_kl_loss(
             model,
