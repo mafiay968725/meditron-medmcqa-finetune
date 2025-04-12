@@ -87,7 +87,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
     model = get_peft_model(model, lora_config)
     model = nn.DataParallel(model)
     model = model.cuda()
-    device = next(model.parameters()).device
+    device = torch.device("cuda")
 
     # ✅ collate_fn
     def my_collate_fn(batch):
@@ -175,7 +175,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
 
         torch.cuda.empty_cache()
         model.eval()
-        device = next(model.parameters()).device
+        device = torch.device("cuda")
         total, correct = 0, 0
         with torch.no_grad():
             for batch in dev_loader:
