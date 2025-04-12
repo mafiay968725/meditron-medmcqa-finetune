@@ -104,7 +104,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
         }
 
 
-    accumulation_steps = 4
+    accumulation_steps = 8
     accelerator = Accelerator(gradient_accumulation_steps=accumulation_steps)
     device_map = {"": accelerator.local_process_index}
 
@@ -142,7 +142,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
                 "opd": [s.get("opd", "") for s in batch],
             }
 
-        dev_loader = DataLoader(dev_dataset, batch_size=4, shuffle=False, collate_fn=dev_collate_fn)
+        dev_loader = DataLoader(dev_dataset, batch_size=2, shuffle=False, collate_fn=dev_collate_fn)
 
         def compute_per_example_loss_after_answer(model, tokenizer, texts,max_length, device):
             # 1. 分词
