@@ -33,6 +33,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
 
     # ✅ 环境变量优化 CUDA 显存
     os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:32"
 
     # ✅ 路径设置
     base_dir = Path("/home/ubuntu/meditron-medmcqa-finetune")
@@ -380,7 +381,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
                     soft_labels=soft_labels,
                     alpha=alpha  # or any
                 )
-                loss.backward()
+                accelerator.backward(loss)
                 optimizer.step()
                 optimizer.zero_grad()
 
