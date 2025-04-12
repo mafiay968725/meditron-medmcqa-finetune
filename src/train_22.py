@@ -448,17 +448,23 @@ def objective(trial):
         f"Trial {trial.number}: params={{'lora_rank': {16}, 'dropout': {0.15}, 'lr': {lr:.6f}, 'alpha': {alpha:.2f}}}, score={score:.4f}")
     return score
 
-if accelerator.is_main_process:
-    study = optuna.create_study(
-        direction="maximize",
-        study_name="meditron_lora_tuning",
-        storage=f"sqlite:///{db_path}",
-        load_if_exists=True
-    )
-    try:
-        study.optimize(objective, n_trials=10, show_progress_bar=True)
-    except KeyboardInterrupt:
+# 所有进程都需要执行 trial，避免 DDP 初始化失败
+study = optuna.create_study(
+    direction="maximize",
+    study_name="meditron_lora_tuning",
+    storage=f"sqlite:///{db_path}",
+    load_if_exists=True
+)
+
+# 所有进程一起 optimize（Optuna 内部会自动只让主进程做 logging）
+try:
+    study.optimize(objective, n_trials=10, show_progress_bar=accelerator.is_main_process)
+except KeyboardInterrupt:
+    if accelerator.is_main_process:
         print("🛑 手动中断调参，已保存当前进度。")
+
+# 只有主进程打印与保存
+if accelerator.is_main_process:
     print("🎯 最优参数:", study.best_params)
     print(f"✅ 最优准确率: {study.best_value:.4f}")
 
