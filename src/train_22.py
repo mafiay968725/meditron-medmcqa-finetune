@@ -33,7 +33,6 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
 
     # ✅ 环境变量优化 CUDA 显存
     os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
-    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True,max_split_size_mb:64"
 
     # ✅ 路径设置
     base_dir = Path("/home/ubuntu/meditron-medmcqa-finetune")
@@ -225,7 +224,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
         total = all_preds.size(0)
         accuracy = correct / total if total > 0 else 0
         return accuracy
-    
+
     def _find_answer_pair_by_tokens(tokenizer, input_ids):
         tokens = tokenizer.convert_ids_to_tokens(input_ids)
         target_seq = ["Answer", ":"]
