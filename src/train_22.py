@@ -105,38 +105,19 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
 
     accumulation_steps = 4
     accelerator = Accelerator(gradient_accumulation_steps=accumulation_steps)
-
-    from accelerate.utils import infer_auto_device_map
-    from transformers import AutoConfig
-    from transformers.utils import logging
-    logging.set_verbosity_error()  # 屏蔽 huggingface 的 verbose 输出
-
-    # 先加载空模型（不加载权重）
-    empty_model = AutoModelForCausalLM.from_pretrained(
-        model_path,
-        quantization_config=bnb_config,
-        local_files_only=True,
-        device_map="auto",
-        low_cpu_mem_usage=True
-    )
-    device_map = infer_auto_device_map(
-        model=empty_model,
-        max_memory={0: "30GiB", 1: "30GiB"},
-        no_split_module_classes=["LlamaDecoderLayer"]
-    )
-    del empty_model  # 释放掉临时模型占用的内存
+    device_map = {"": accelerator.local_process_index}
 
     model = AutoModelForCausalLM.from_pretrained(
         model_path,
         quantization_config=bnb_config,
         device_map=device_map,
-        local_files_only=True,
-        low_cpu_mem_usage=True
+        local_files_only=True
     )
+
     lora_config = LoraConfig(r=lora_rank, lora_alpha=2 * lora_rank, lora_dropout=dropout, task_type=TaskType.CAUSAL_LM)
     model = get_peft_model(model, lora_config)
 
-    train_dataloader = DataLoader(train_subset, batch_size=4, shuffle=True, collate_fn=my_collate_fn)
+    train_dataloader = DataLoader(train_subset, batch_size=2, shuffle=True, collate_fn=my_collate_fn)
 
     optimizer = AdamW(model.parameters(), lr=learning_rate)
 
