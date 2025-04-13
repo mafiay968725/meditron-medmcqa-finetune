@@ -323,12 +323,29 @@ def log_final_accuracy_to_csv(epoch, lora_rank, dropout, lr, accuracy, log_path,
             writer.writerow(["final_accuracy", lora_rank, dropout, lr, "", f"{accuracy:.4f}"])
 
 
-# ✅ Top 3 hyperparameter sets based on previous results
+
+# ✅ Top 3 recommended hyperparameter sets for next round (on 30k subset)
 top_configs = [
-    {"lora_rank": 16, "dropout": 0.1223, "lr": 1.2e-4},   # 稳健配置，调度器下适度提高 lr
-    {"lora_rank": 16, "dropout": 0.1786, "lr": 1.8e-4},   # 偏激进，高 lr 策略，测试学习能力
-    {"lora_rank": 16, "dropout": 0.1055, "lr": 5.0e-5},   # 极小 dropout、低起点 lr，测试稳定性
+    {
+        "lora_rank": 16,
+        "dropout": 0.15,
+        "lr": 7e-5,
+        # ✅ 平衡配置：lr 适中，dropout 稍升，缓解过拟合，稳定收敛
+    },
+    {
+        "lora_rank": 16,
+        "dropout": 0.18,
+        "lr": 6e-5,
+        # 🛡️ 泛化优先：更高 dropout 搭配更稳健 lr，观察小训练集下的泛化表现
+    },
+    {
+        "lora_rank": 16,
+        "dropout": 0.20,
+        "lr": 1e-4,
+        # 🔥 进取尝试：中高 lr + 高 dropout，压制过拟合同时快速探索训练能力
+    },
 ]
+
 
 # ✅ Loop over top configs
 for i, cfg in enumerate(top_configs):
