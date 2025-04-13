@@ -352,7 +352,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
                 labels=labels,
                 hard_labels=hard_labels,
                 soft_labels=soft_labels,
-                alpha=0.5  # or any
+                alpha=alpha
             )
 
             # 梯度累积
