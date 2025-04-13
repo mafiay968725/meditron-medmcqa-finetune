@@ -16,7 +16,9 @@ import random
 import numpy as np
 from accelerate import Accelerator
 from torch.optim import AdamW
-
+import optuna
+import joblib
+from pathlib import Path
 
 
 def set_seed(seed=42):
@@ -27,8 +29,6 @@ def set_seed(seed=42):
 
 set_seed(42)
 
-accumulation_steps = 8
-accelerator = Accelerator(gradient_accumulation_steps=accumulation_steps)
 
 def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
 
@@ -435,52 +435,90 @@ def log_final_accuracy_to_csv(epoch, lora_rank, dropout, lr, accuracy, log_path,
             writer.writerow(["final_accuracy", lora_rank, dropout, lr, "", f"{accuracy:.4f}"])
 
 
-import optuna
-import joblib
-from pathlib import Path
+def main():
+    # -------------------------------------------------------
+    # 1) 初始化 Accelerator（多进程会在此 spawn）
+    # -------------------------------------------------------
+    accumulation_steps = 8
+    accelerator = Accelerator(gradient_accumulation_steps=accumulation_steps)
 
-# ✅ 设置保存路径
-log_dir = Path("/home/ubuntu/meditron-medmcqa-finetune/data/log")
-log_dir.mkdir(parents=True, exist_ok=True)  # 如果不存在就创建
+    # -------------------------------------------------------
+    # 2) 设置数据库和日志路径
+    # -------------------------------------------------------
+    log_dir = Path("/home/ubuntu/meditron-medmcqa-finetune/data/log")
+    log_dir.mkdir(parents=True, exist_ok=True)  # 如果不存在就创建
+    db_path = log_dir / "train_22.db"
 
-# ✅ 设定数据库和文件名
-db_path = log_dir / "train_22.db"
+    # -------------------------------------------------------
+    # 3) 定义 Optuna 的 objective 函数
+    #
+    #    注意，这里的 objective 只在主进程真正发挥“调参、返回分数”
+    #    非主进程也会进入，但我们会在里面做判断。
+    # -------------------------------------------------------
+    def objective(trial):
+        # 仅主进程进行参数采样
+        if accelerator.is_main_process:
+            lr = trial.suggest_float("learning_rate", 2e-5, 1.2e-4, log=True)
+            alpha = trial.suggest_float("alpha", 0.2, 0.8)
+        else:
+            # 非主进程占位（不会用于决定超参）
+            lr = None
+            alpha = None
 
+        # 主进程广播超参给其它进程，以保证所有 GPU 一起用同样的超参训练
+        [lr, alpha] = accelerator.broadcast_object_list([lr, alpha])
 
-def objective(trial):
-    lr = trial.suggest_float("learning_rate", 2e-5, 1.2e-4, log=True)
-    alpha = trial.suggest_float("alpha", 0.2, 0.8)
-    score = train_model(
-        lora_rank=16,
-        dropout=0.15,
-        learning_rate=lr,
-        alpha = alpha
-    )
+        # 调用你的训练函数
+        score = train_model(
+            lora_rank=16,
+            dropout=0.15,
+            learning_rate=lr,
+            alpha=alpha
+        )
 
-    print(
-        f"Trial {trial.number}: params={{'lora_rank': {16}, 'dropout': {0.15}, 'lr': {lr:.6f}, 'alpha': {alpha:.2f}}}, score={score:.4f}")
-    return score
+        # 主进程打印信息；非主进程可以不打印
+        if accelerator.is_main_process:
+            print(f"Trial {trial.number}: params={{lr={lr:.6f}, alpha={alpha:.2f}}}, score={score:.4f}")
 
-# ✅ 只主进程创建 study，但所有进程都能访问
-if accelerator.is_main_process:
-    study = optuna.create_study(
-        direction="maximize",
+        return score
+
+    # -------------------------------------------------------
+    # 4) 只主进程创建（或加载） Study，以免重复写 DB
+    # -------------------------------------------------------
+    if accelerator.is_main_process:
+        study = optuna.create_study(
+            direction="maximize",
+            study_name="meditron_lora_tuning",
+            storage=f"sqlite:///{db_path}",
+            load_if_exists=True,
+            sampler=optuna.samplers.TPESampler(seed=42)  # TPE 贝叶斯优化示例
+        )
+    accelerator.wait_for_everyone()
+
+    # -------------------------------------------------------
+    # 5) 所有进程都获取同一个 Study（共享同一个 storage）
+    #    这样才能在多进程下正常同步
+    # -------------------------------------------------------
+    study = optuna.load_study(
         study_name="meditron_lora_tuning",
-        storage=f"sqlite:///{db_path}",
-        load_if_exists=True
+        storage=f"sqlite:///{db_path}"
     )
-accelerator.wait_for_everyone()
 
-# ✅ 所有进程都必须获取 study（共享 storage）
-study = optuna.load_study(
-    study_name="meditron_lora_tuning",
-    storage=f"sqlite:///{db_path}"
-)
+    # -------------------------------------------------------
+    # 6) 仅主进程调用 study.optimize，真正做调参；其它进程只负责训练
+    # -------------------------------------------------------
+    if accelerator.is_main_process:
+        study.optimize(objective, n_trials=10, show_progress_bar=True)
 
-if accelerator.is_main_process:
-    study.optimize(objective, n_trials=10, show_progress_bar=True)
-    print("🎯 最优参数:", study.best_params)
-    print(f"✅ 最优准确率: {study.best_value:.4f}")
+        # 打印最终结果
+        print("🎯 最优参数:", study.best_params)
+        print(f"✅ 最优准确率: {study.best_value:.4f}")
 
-accelerator.wait_for_everyone()
+    accelerator.wait_for_everyone()
+
+# -----------------------------------------------------------
+# 入口点：确保多进程环境下只在 main 里做逻辑
+# -----------------------------------------------------------
+if __name__ == "__main__":
+    main()
 
