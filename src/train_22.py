@@ -401,6 +401,13 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
     accuracy = evaluate_model_accuracy(model,tokenizer, dev_eval_subset, accelerator) #训练完成后，评估最终的准确率
     save_path = base_dir / "data" / "log" / "train_22.csv"
     log_final_accuracy_to_csv(epochs, lora_rank, dropout, learning_rate, accuracy, save_path, 1)
+
+    del model
+    del optimizer
+    del train_dataloader
+    torch.cuda.empty_cache()
+    accelerator.free_memory()
+
     return accuracy
 
 
@@ -454,24 +461,26 @@ def objective(trial):
         f"Trial {trial.number}: params={{'lora_rank': {16}, 'dropout': {0.15}, 'lr': {lr:.6f}, 'alpha': {alpha:.2f}}}, score={score:.4f}")
     return score
 
-# 所有进程都需要执行 trial，避免 DDP 初始化失败
-study = optuna.create_study(
-    direction="maximize",
+# ✅ 只主进程创建 study，但所有进程都能访问
+if accelerator.is_main_process:
+    study = optuna.create_study(
+        direction="maximize",
+        study_name="meditron_lora_tuning",
+        storage=f"sqlite:///{db_path}",
+        load_if_exists=True
+    )
+accelerator.wait_for_everyone()
+
+# ✅ 所有进程都必须获取 study（共享 storage）
+study = optuna.load_study(
     study_name="meditron_lora_tuning",
-    storage=f"sqlite:///{db_path}",
-    load_if_exists=True
+    storage=f"sqlite:///{db_path}"
 )
 
-# 所有进程一起 optimize（Optuna 内部会自动只让主进程做 logging）
-try:
-    study.optimize(objective, n_trials=10, show_progress_bar=accelerator.is_main_process)
-except KeyboardInterrupt:
-    if accelerator.is_main_process:
-        print("🛑 手动中断调参，已保存当前进度。")
-
-# 只有主进程打印与保存
 if accelerator.is_main_process:
+    study.optimize(objective, n_trials=10, show_progress_bar=True)
     print("🎯 最优参数:", study.best_params)
     print(f"✅ 最优准确率: {study.best_value:.4f}")
 
 accelerator.wait_for_everyone()
+
