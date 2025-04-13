@@ -60,8 +60,6 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
         raw_options = [example["opa"], example["opb"], example["opc"], example["opd"]]
         options = [f"{prefix}{text}" for prefix, text in zip(option_prefix, raw_options)]
 
-        first_choice = example["first_choice"]
-        second_choice = example["second_choice"]
         return {
             "options": options,
             "hard_label": hard_label,
@@ -309,7 +307,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
     optimizer = AdamW(model.parameters(), lr=learning_rate)
 
     # ✅ Training loop
-    epochs = 3
+    epochs = 2
     accumulation_steps = 16
     global_step = 0
 
