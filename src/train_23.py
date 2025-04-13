@@ -310,7 +310,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
 
     # ✅ Training loop
     epochs = 3
-    accumulation_steps = 5
+    accumulation_steps = 16
     global_step = 0
 
     for epoch in range(epochs):
