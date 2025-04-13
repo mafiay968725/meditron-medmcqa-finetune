@@ -72,9 +72,9 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
     # 划分 train_eval_subset：从训练集划出 1000 条用于训练中评估准确率（early stopping）
     train_dataset = train_dataset.shuffle(seed=42)
     dev_dataset = dev_dataset.shuffle(seed=42)
-    train_subset = train_dataset.select(range(10000))
+    train_subset = train_dataset.select(range(100))
     # 打乱验证集，划分出两个部分
-    dev_eval_subset = dev_dataset.select(range(1000))  # ⬅️ 每轮评估准确率
+    dev_eval_subset = dev_dataset.select(range(100))  # ⬅️ 每轮评估准确率
     dev_final_subset = dev_dataset.select(range(1000, len(dev_dataset)))  # ⬅️ 最终评估准确率
 
     # ✅ collate_fn
