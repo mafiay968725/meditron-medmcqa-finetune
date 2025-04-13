@@ -1,0 +1,28 @@
+name: pj_env
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python=3.11
+  - pip
+  - numpy
+  - scipy
+  - scikit-learn
+  - tqdm
+  - pytorch=2.5.0
+  - torchvision
+  - torchaudio
+  - cuda-toolkit=12.1  # ⚠️ CUDA 12.1 runtime (适配 V100 + PyTorch 2.5)
+  - pip:
+      - transformers==4.40.0
+      - datasets
+      - accelerate==1.25.0
+      - peft
+      - bitsandbytes==0.43.0
+      - sentencepiece
+      - protobuf>=3.20,<4.0
+      - huggingface-hub
+      - jupyterlab
