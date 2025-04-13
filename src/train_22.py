@@ -225,7 +225,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
         ).cpu()
         all_labels = accelerator.gather_for_metrics(
             torch.tensor(all_labels, dtype=torch.long, device=accelerator.device)
-        )
+        ).cpu()
 
         correct = (all_preds == all_labels).sum().item()
         total = all_preds.size(0)
