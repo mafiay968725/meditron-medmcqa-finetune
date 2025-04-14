@@ -107,61 +107,69 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4):
 
         dev_loader = DataLoader(dev_dataset, batch_size=2, shuffle=False, collate_fn=dev_collate_fn)
 
-        def compute_per_example_loss_after_answer(model, tokenizer, texts,max_length=768):
-            """
-            在验证/推断阶段，对输入的多条文本，只计算从“Answer:”开始的token的平均loss，
-            其它部分（问句、选项列表等）设为 -100 不纳入CE损失。
+        # def compute_per_example_loss_after_answer(model, tokenizer, texts,max_length=768):
+        #     # 1. 分词
+        #     inputs = tokenizer(texts, return_tensors="pt", padding=True, truncation=True, max_length=max_length)
+        #     input_ids = inputs["input_ids"]
+        #     attention_mask = inputs["attention_mask"]
+        #
+        #     # ✅ 2. 直接复用训练时的 masking 函数！
+        #     labels = mask_labels_before_answer(input_ids, tokenizer)
+        #
+        #     # 4) 放到 GPU
+        #     input_ids = input_ids.to(model.device)
+        #     attention_mask = attention_mask.to(model.device)
+        #     labels = labels.to(model.device)
+        #
+        #     # 5) 前向传播 (不使用 outputs.loss，手动拿 logits 计算更灵活)
+        #     outputs = model(
+        #         input_ids=input_ids,
+        #         attention_mask=attention_mask,
+        #         labels=labels
+        #     )
+        #     logits = outputs.logits  # shape: [B, L, vocab_size]
+        #
+        #     # 6) 做 shift：Causal LM 通常要对 logits[:-1] 和 labels[1:]对齐
+        #     shift_logits = logits[:, :-1, :].contiguous()
+        #     shift_labels = labels[:, 1:].contiguous()  # shape: [B, L-1]
+        #
+        #     # 7) 自定义 token-level cross entropy
+        #     loss_fct = nn.CrossEntropyLoss(reduction="none")
+        #     loss_tokens = loss_fct(
+        #         shift_logits.view(-1, shift_logits.size(-1)),
+        #         shift_labels.view(-1)
+        #     )
+        #     # 把它 reshape 回 [B, L-1]
+        #     loss_tokens = loss_tokens.view(shift_labels.size())
+        #
+        #     # 8) 只对 label != -100 的位置求和，再除以有效token数
+        #     valid_mask = (shift_labels != -100).float()
+        #     per_example_loss = (loss_tokens * valid_mask).sum(dim=1) / (valid_mask.sum(dim=1) + 1e-8)
+        #
+        #     return per_example_loss
 
-            参数:
-              model: 你的LoRA微调后的Causal LM模型
-              tokenizer: 对应的分词器 (不会变动)
-              texts: list[str]，长度 = batch_size，也可能是4倍batch_size (每个样本4选项)
-              answer_token_ids: tokenizer.encode("Answer:", add_special_tokens=False)
-              max_length: 分词长度上限
+        #临时替换
+        def compute_per_example_loss_after_answer(model, tokenizer, texts, max_length=768):
+            inputs = tokenizer(texts, return_tensors="pt", padding=True, truncation=True, max_length=max_length)
+            inputs = {k: v.to(model.device) for k, v in inputs.items()}
 
-            返回:
-              per_example_loss: Tensor，形状 [batch_size]，表示每条文本的平均loss
-            """
-            # 1. 分词
-            inputs = tokenizer(texts, return_tensors="pt", padding=True, truncation=True, max_length=768)
-            input_ids = inputs["input_ids"]
-            attention_mask = inputs["attention_mask"]
+            # 使用整个 input_ids 作为 labels，计算 full prompt loss
+            outputs = model(**inputs, labels=inputs["input_ids"])
+            logits, labels = outputs.logits, inputs["input_ids"]
 
-            # ✅ 2. 直接复用训练时的 masking 函数！
-            labels = mask_labels_before_answer(input_ids, tokenizer)
+            # 对齐 logits 和 labels
+            shift_logits, shift_labels = logits[:, :-1, :].contiguous(), labels[:, 1:].contiguous()
 
-            # 4) 放到 GPU
-            input_ids = input_ids.to(model.device)
-            attention_mask = attention_mask.to(model.device)
-            labels = labels.to(model.device)
-
-            # 5) 前向传播 (不使用 outputs.loss，手动拿 logits 计算更灵活)
-            outputs = model(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                labels=labels
-            )
-            logits = outputs.logits  # shape: [B, L, vocab_size]
-
-            # 6) 做 shift：Causal LM 通常要对 logits[:-1] 和 labels[1:]对齐
-            shift_logits = logits[:, :-1, :].contiguous()
-            shift_labels = labels[:, 1:].contiguous()  # shape: [B, L-1]
-
-            # 7) 自定义 token-level cross entropy
+            # 使用 token-level CrossEntropyLoss，默认 ignore_index = -100（我们未设 -100，所有 token 都参与）
             loss_fct = nn.CrossEntropyLoss(reduction="none")
             loss_tokens = loss_fct(
                 shift_logits.view(-1, shift_logits.size(-1)),
                 shift_labels.view(-1)
-            )
-            # 把它 reshape 回 [B, L-1]
-            loss_tokens = loss_tokens.view(shift_labels.size())
+            ).view_as(shift_labels)
 
-            # 8) 只对 label != -100 的位置求和，再除以有效token数
-            valid_mask = (shift_labels != -100).float()
-            per_example_loss = (loss_tokens * valid_mask).sum(dim=1) / (valid_mask.sum(dim=1) + 1e-8)
-
-            return per_example_loss
-
+            # 只屏蔽 pad token
+            mask = (shift_labels != tokenizer.pad_token_id).float()
+            return (loss_tokens * mask).sum(1) / (mask.sum(1) + 1e-8)
 
         model.eval()
         total, correct = 0, 0
@@ -224,14 +232,6 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4):
             else:
                 pass
             if start_idx is None:
-                # print("Answer token ids:", answer_token_ids)
-                # print("Example row (raw tokens):", tokenizer.convert_ids_to_tokens(row_ids))
-                #
-                # # ✅ 新增：打印 token 的 ascii 表示，方便发现不可见字符
-                # print("Example row (ascii tokens):")
-                # tokens = tokenizer.convert_ids_to_tokens(row_ids)
-                # for idx, tk in enumerate(tokens):
-                #     print(f"  {idx:03d}: {ascii(tk)}")  # 补齐位数更方便看
                 print(f"[Warning] Sample {i} has no 'Answer:' token.")
 
         return masked_labels
@@ -270,13 +270,20 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4):
         model.train()
         optimizer.zero_grad()
         for i, batch in enumerate(train_dataloader):
-            inputs = tokenizer(batch["input_text"], return_tensors="pt", padding=True, truncation=True, max_length=896).to("cuda")
-            input_ids = inputs["input_ids"].to(model.device)
-            attention_mask = inputs["attention_mask"].to(model.device)
-            # 根据需要将 "Answer:" 之前的部分mask掉
-            labels = mask_labels_before_answer(input_ids, tokenizer).to(model.device)
-            # 将注意力掩码也要带上
-            outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
+            # inputs = tokenizer(batch["input_text"], return_tensors="pt", padding=True, truncation=True, max_length=896).to("cuda")
+            # input_ids = inputs["input_ids"].to(model.device)
+            # attention_mask = inputs["attention_mask"].to(model.device)
+            # # 根据需要将 "Answer:" 之前的部分mask掉
+            # labels = mask_labels_before_answer(input_ids, tokenizer).to(model.device)
+            # # 将注意力掩码也要带上
+            # outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
+
+            #暂时使用完整prompt计算loss
+            inputs = tokenizer(batch["input_text"], return_tensors="pt", padding=True, truncation=True,
+                               max_length=896).to("cuda")
+            outputs = model(**inputs, labels=inputs.input_ids)
+
+
             (outputs.loss / accumulation_steps).backward()
             if (i + 1) % accumulation_steps == 0:
                 optimizer.step()
@@ -328,21 +335,21 @@ def log_final_accuracy_to_csv(epoch, lora_rank, dropout, lr, accuracy, log_path,
 top_configs = [
     {
         "lora_rank": 16,
-        "dropout": 0.15,
-        "lr": 7e-5,
-        # ✅ 平衡配置：lr 适中，dropout 稍升，缓解过拟合，稳定收敛
+        "dropout": 0.24,
+        "lr": 1.3e-4,
+        # ✅ 基准配置（版本1最优）：直接迁移到版本3，验证结构改变是否增益
+    },
+    {
+        "lora_rank": 16,
+        "dropout": 0.21,
+        "lr": 1.0e-4,
+        # 🧠 稳健替代：略降 dropout，适应 prompt 更长带来的训练信号稀释
     },
     {
         "lora_rank": 16,
         "dropout": 0.18,
-        "lr": 6e-5,
-        # 🛡️ 泛化优先：更高 dropout 搭配更稳健 lr，观察小训练集下的泛化表现
-    },
-    {
-        "lora_rank": 16,
-        "dropout": 0.20,
-        "lr": 1e-4,
-        # 🔥 进取尝试：中高 lr + 高 dropout，压制过拟合同时快速探索训练能力
+        "lr": 7e-5,
+        # 🛡️ 泛化优先：更保守 lr，适合版本3在 soft label 阶段打底使用
     },
 ]
 
