@@ -407,8 +407,8 @@ log_dir.mkdir(parents=True, exist_ok=True)  # 如果不存在就创建
 db_path = log_dir / "train_23.db"
 
 def objective(trial):
-    lr = trial.suggest_float("learning_rate", 2e-5, 1.2e-4, log=True)
-    alpha = trial.suggest_float("alpha", 0.2, 0.8)
+    lr = trial.suggest_float("learning_rate", 4e-5, 1.4e-4, log=True)
+    alpha = trial.suggest_float("alpha", 0.1, 0.5)
     score = train_model(
         lora_rank=16,
         dropout=0.15,
