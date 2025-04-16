@@ -107,7 +107,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
             "hard_labels": hard_labels,
             "soft_labels": soft_labels
         }
-    train_dataloader = DataLoader(train_subset, batch_size=1, shuffle=True, collate_fn=my_collate_fn)
+    train_dataloader = DataLoader(train_subset, batch_size=1, shuffle=False, collate_fn=my_collate_fn)
 
     # ✅ 准确率评估函数
     def evaluate_model_accuracy(model, tokenizer, dev_dataset):
@@ -370,70 +370,85 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5):
         # if epoch >= 0:
         #     accuracy = evaluate_model_accuracy(model, tokenizer, dev_eval_subset)
         #     print(f"Epoch {epoch + 1},  Accuracy: {accuracy:.4f}")
-        #     log_final_accuracy_to_csv(epoch+1, lora_rank, dropout, learning_rate, accuracy, save_path,0)
+        #     log_final_accuracy_to_csv(epoch+1, lora_rank, dropout, learning_rate, alpha, accuracy, save_path,0)
 
     accuracy = evaluate_model_accuracy(model,tokenizer, dev_eval_subset) #训练完成后，评估最终的准确率
     save_path = base_dir / "data" / "log" / "train_23.csv"
-    log_final_accuracy_to_csv(epochs, lora_rank, dropout, learning_rate, accuracy, save_path, 1)
+    log_final_accuracy_to_csv(epochs, lora_rank, dropout, learning_rate, accuracy, alpha, save_path, 1)
     return accuracy
 
 
 set_seed(42) #固定随机种子，
 
-#记录每一轮结束时的dev_loss
-def log_dev_loss_to_csv(epoch, lora_rank, dropout, lr, dev_loss, log_path):
-    file_exists = Path(log_path).exists()
-    with open(log_path, mode="a", newline='') as f:
-        writer = csv.writer(f)
-        if not file_exists:
-            writer.writerow(["epoch", "lora_rank", "dropout", "lr", "dev_loss", "accuracy"])  # 表头
-        writer.writerow([epoch, lora_rank, dropout, lr, f"{dev_loss:.4f}", ""])
 #记录训练结束后，在验证集上的准确率
-def log_final_accuracy_to_csv(epoch, lora_rank, dropout, lr, accuracy, log_path, is_final=0):
+def log_final_accuracy_to_csv(epoch, lora_rank, dropout, lr, accuracy, alpha,  log_path, is_final=0):
     file_exists = Path(log_path).exists()
     with open(log_path, mode="a", newline='') as f:
         writer = csv.writer(f)
         if not file_exists:
-            writer.writerow(["epoch", "lora_rank", "dropout", "lr", "dev_loss", "accuracy"])
+            writer.writerow(["epoch", "lora_rank", "dropout", "lr", "alpha", "accuracy"])
         if not is_final:
-            writer.writerow([epoch, lora_rank, dropout, lr, "", f"{accuracy:.4f}"])
+            writer.writerow([epoch, lora_rank, dropout, lr, alpha, f"{accuracy:.4f}"])
         else:
             writer.writerow(["final_accuracy", lora_rank, dropout, lr, "", f"{accuracy:.4f}"])
 
 
 
-log_dir = Path("/home/ubuntu/meditron-medmcqa-finetune/data/log")
-log_dir.mkdir(parents=True, exist_ok=True)  # 如果不存在就创建
-db_path = log_dir / "train_23.db"
+# log_dir = Path("/home/ubuntu/meditron-medmcqa-finetune/data/log")
+# log_dir.mkdir(parents=True, exist_ok=True)  # 如果不存在就创建
+# db_path = log_dir / "train_23.db"
+#
+# def objective(trial):
+#     lr = trial.suggest_float("learning_rate", 4e-5, 1.4e-4, log=True)
+#     alpha = trial.suggest_float("alpha", 0.1, 0.5)
+#     score = train_model(
+#         lora_rank=16,
+#         dropout=0.15,
+#         learning_rate=lr,
+#         alpha=alpha
+#     )
+#
+#     print(
+#         f"Trial {trial.number}: params={{'lora_rank': {16}, 'dropout': {0.15}, 'lr': {lr:.6f}}}, score={score:.4f}")
+#     return score
+#
+#
+# # ✅ 使用 SQLite 存储，保存至指定路径
+# study = optuna.create_study(
+#     direction="maximize",
+#     study_name="meditron_lora_tuning",
+#     storage=f"sqlite:///{db_path}",
+#     load_if_exists=True
+# )
+#
+# try:
+#     study.optimize(objective, n_trials=10, show_progress_bar=True)
+# except KeyboardInterrupt:
+#     print("🛑 手动中断调参，已保存当前进度。")
+#
+# # ✅ 输出并保存
+# print("🎯 最优参数:", study.best_params)
+# print(f"✅ 最优准确率: {study.best_value:.4f}")
 
-def objective(trial):
-    lr = trial.suggest_float("learning_rate", 4e-5, 1.4e-4, log=True)
-    alpha = trial.suggest_float("alpha", 0.1, 0.5)
+top_configs = [
+    {"lora_rank": 16, "dropout": 0.15, "lr": 5.2e-5,  "alpha": 0.38},
+    {"lora_rank": 16, "dropout": 0.15, "lr": 7.0e-5,  "alpha": 0.42},
+    {"lora_rank": 16, "dropout": 0.15, "lr": 9.0e-5,  "alpha": 0.39},
+    {"lora_rank": 16, "dropout": 0.15, "lr": 1.02e-4, "alpha": 0.36},
+    {"lora_rank": 16, "dropout": 0.15, "lr": 1.05e-4, "alpha": 0.44},
+]
+
+
+for i, cfg in enumerate(top_configs):
+    print(f"\n🚀 Running Trial {i} with lora_rank={cfg['lora_rank']}, dropout={cfg['dropout']}, lr={cfg['lr']:.6f}")
+
     score = train_model(
-        lora_rank=16,
-        dropout=0.15,
-        learning_rate=lr,
-        alpha=alpha
+        lora_rank=cfg["lora_rank"],
+        dropout=cfg["dropout"],
+        learning_rate=cfg["lr"],
+        alpha = cfg["alpha"]
     )
 
     print(
-        f"Trial {trial.number}: params={{'lora_rank': {16}, 'dropout': {0.15}, 'lr': {lr:.6f}}}, score={score:.4f}")
-    return score
+        f"✅ Trial {i}: params={{'lora_rank': {cfg['lora_rank']}, 'dropout': {cfg['dropout']}, 'lr': {cfg['lr']:.6f}, 'alpha': {cfg['alpha']:.3f}}}, score={score:.4f}")
 
-
-# ✅ 使用 SQLite 存储，保存至指定路径
-study = optuna.create_study(
-    direction="maximize",
-    study_name="meditron_lora_tuning",
-    storage=f"sqlite:///{db_path}",
-    load_if_exists=True
-)
-
-try:
-    study.optimize(objective, n_trials=10, show_progress_bar=True)
-except KeyboardInterrupt:
-    print("🛑 手动中断调参，已保存当前进度。")
-
-# ✅ 输出并保存
-print("🎯 最优参数:", study.best_params)
-print(f"✅ 最优准确率: {study.best_value:.4f}")
