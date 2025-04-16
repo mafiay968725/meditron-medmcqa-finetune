@@ -431,12 +431,13 @@ def log_final_accuracy_to_csv(epoch, lora_rank, dropout, lr, accuracy, alpha,  l
 # print(f"✅ 最优准确率: {study.best_value:.4f}")
 
 top_configs = [
-    {"lora_rank": 16, "dropout": 0.15, "lr": 5.2e-5,  "alpha": 0.38},
-    {"lora_rank": 16, "dropout": 0.15, "lr": 7.0e-5,  "alpha": 0.42},
-    {"lora_rank": 16, "dropout": 0.15, "lr": 9.0e-5,  "alpha": 0.39},
-    {"lora_rank": 16, "dropout": 0.15, "lr": 1.02e-4, "alpha": 0.36},
-    {"lora_rank": 16, "dropout": 0.15, "lr": 1.05e-4, "alpha": 0.44},
+    {"lora_rank": 16, "dropout": 0.15, "lr": 5.2e-5,  "alpha": 0.38},  # ✅ 保留 trial 5 附近
+    {"lora_rank": 16, "dropout": 0.15, "lr": 9.0e-5,  "alpha": 0.39},  # ✅ 插值稳定
+    {"lora_rank": 16, "dropout": 0.15, "lr": 1.05e-4, "alpha": 0.44},  # ✅ 最优点附近
+    {"lora_rank": 16, "dropout": 0.15, "lr": 8.0e-5,  "alpha": 0.43},  # 🆕 在 trial 8/11 中间点
+    {"lora_rank": 16, "dropout": 0.15, "lr": 6.5e-5,  "alpha": 0.41},  # 🆕 替代原 7e-5 配置，更靠近 trial 11
 ]
+
 
 
 for i, cfg in enumerate(top_configs):
