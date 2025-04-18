@@ -249,7 +249,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
                     return_tensors="pt",
                     padding=True,
                     truncation=True,
-                    max_length=768,
+                    max_length=7680-,
                 ).to(device)
 
                 logits = model(
@@ -355,7 +355,7 @@ def log_final_accuracy_to_csv(epoch, lora_rank, dropout, lr, accuracy, alpha,  l
         if not is_final:
             writer.writerow([epoch, lora_rank, dropout, lr, alpha, f"{accuracy:.4f}"])
         else:
-            writer.writerow(["final_accuracy", lora_rank, dropout, lr, "", f"{accuracy:.4f}"])
+            writer.writerow(["final_accuracy", lora_rank, dropout, lr, alpha, f"{accuracy:.4f}"])
 
 
 # top_configs = [
