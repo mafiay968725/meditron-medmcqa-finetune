@@ -238,10 +238,11 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
 
         all_probs, all_preds, all_gold = [], [], []
 
+
         with torch.no_grad():
             for batch in dev_loader:
-                prompts = batch["prompt"]  # list[str]
-                gold_labels = batch["hard_labels"].long().to(device)  # (B,)
+                prompts = batch["prompts"]  # ✔️ 用复数键
+                gold_labels = batch["hard_labels"].to(device)  # (B,)
 
                 enc = tokenizer(
                     prompts,
