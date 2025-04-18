@@ -210,26 +210,22 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
             all_gold : Tensor (N,) , 每样本真实类别索引
         """
 
-        def dev_collate_fn(batch):
-            # batch: list[dict], 每个dict包含 prompt/options/hard_label/soft_label
-            new_batch = []
-            for ex in batch:
-                if ex is not None:
-                    new_batch.append(ex)
-            if len(new_batch) == 0:
-                raise ValueError("没有有效样本")
-            prompts = [ex["prompt"] for ex in new_batch]  # list of str
-            hard_labels = [ex["hard_label"] for ex in new_batch]  # list of int
-            soft_labels = [ex["soft_label"] for ex in new_batch]  # list of list of float
+        # 把选项字母映射成 0‒3
+        choice2idx = {"A": 0, "B": 1, "C": 2, "D": 3}
 
-            # 转成tensor
-            hard_labels = torch.tensor(hard_labels, dtype=torch.long)
-            soft_labels = torch.tensor(soft_labels, dtype=torch.float32)
+        def dev_collate_fn(batch):
+            batch = [ex for ex in batch if ex is not None]
+            if len(batch) == 0:
+                raise ValueError("没有有效样本")
+            # ⬇️ 1) prompts
+            prompts = [ex["prompt"] for ex in batch]  # list[str]
+            # ⬇️ 2) hard labels：把 "A"/"B"/… 转成 0‒3
+            hard_labels = [choice2idx[ex["label"].strip()] for ex in batch]
+            hard_labels = torch.tensor(hard_labels, dtype=torch.long)  # (B,)
 
             return {
-                "prompts": prompts,
-                "hard_labels": hard_labels,
-                "soft_labels": soft_labels
+                "prompts": prompts,  # list[str]
+                "hard_labels": hard_labels,  # LongTensor (B,)
             }
 
         model.eval()
