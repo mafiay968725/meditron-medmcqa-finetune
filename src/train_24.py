@@ -249,7 +249,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
                     return_tensors="pt",
                     padding=True,
                     truncation=True,
-                    max_length=512,
+                    max_length=768,
                 ).to(device)
 
                 logits = model(
