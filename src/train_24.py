@@ -249,7 +249,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
                     return_tensors="pt",
                     padding=True,
                     truncation=True,
-                    max_length=7680-,
+                    max_length=768,
                 ).to(device)
 
                 logits = model(
@@ -341,7 +341,13 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
         batch_size=3,
         device="cuda",
     )
-    print(f"Final accuracy: {dev_acc:.4f}")
+    print(
+        f"Final accuracy: {dev_acc:.4f} | "
+        f"dropout={dropout:.3f}, "
+        f"lr={learning_rate:.6f}, "
+        f"alpha={alpha:.3f}, "
+        f"seed={seed}"
+    )
     log_final_accuracy_to_csv(epoch + 1, lora_rank, dropout, learning_rate, alpha, dev_acc, save_path, 1)
     return dev_acc
 
