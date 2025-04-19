@@ -16,6 +16,9 @@ import random
 import numpy as np
 import wandb
 
+from src.train_10 import accumulation_steps
+
+
 def set_seed(seed=42):
     random.seed(seed)
     np.random.seed(seed)
@@ -351,13 +354,12 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
                 gold_label=hard_labels,  # 命名传参避免顺序错位
                 kl_alpha=alpha
             )
-            loss.backward()
-
+            (loss/accumulation_steps).backward()
+            total_loss += loss.item()
             if (i + 1) % accumulation_steps == 0:
                 optimizer.step()
                 optimizer.zero_grad()
                 global_step += 1
-                total_loss += loss.item()
 
             wandb_save_step = 20
             if global_step % wandb_save_step == 0:
