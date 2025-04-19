@@ -302,6 +302,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
     )
 
     #引入 wanb，用来记录
+    os.environ["WANDB_DIR"] = "/home/ubuntu/meditron-medmcqa-finetune/data"
     wandb.init(
         project="medmcqa-attnpooling",
         name=f"lr{learning_rate}_dropout{dropout}_alpha_{alpha}_seed{seed}",
