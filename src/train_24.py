@@ -14,6 +14,10 @@ import csv
 from pathlib import Path
 import random
 import numpy as np
+import wandb
+
+from src.train_10 import accumulation_steps
+
 
 def set_seed(seed=42):
     random.seed(seed)
@@ -60,8 +64,8 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
                 input_ids,
                 attention_mask=None,
                 labels=None,
-                gold_label = None,
-                kl_alpha = 0.5
+                gold_label=None,
+                kl_alpha=0.5
         ):
             """
             labels 期望是 soft label 分布, shape = (batch_size, 4).
@@ -237,7 +241,8 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
         )
 
         all_probs, all_preds, all_gold = [], [], []
-
+        total_loss = 0.0
+        total_examples = 0
 
         with torch.no_grad():
             for batch in dev_loader:
@@ -260,6 +265,12 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
                 probs = torch.softmax(logits, dim=-1)  # (B,4)
                 preds = probs.argmax(dim=-1)  # (B,)
 
+                # ✅ 直接在这里算 cross_entropy loss
+                loss = F.cross_entropy(logits, gold_labels)
+                batch_size = gold_labels.size(0)
+                total_loss += loss.item() * batch_size
+                total_examples += batch_size
+
                 all_probs.append(probs.cpu())
                 all_preds.append(preds.cpu())
                 all_gold.append(gold_labels.cpu())
@@ -268,35 +279,61 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
         all_probs = torch.cat(all_probs, dim=0)  # (N,4)
         all_preds = torch.cat(all_preds, dim=0)  # (N,)
         all_gold = torch.cat(all_gold, dim=0)  # (N,)
-
         # 计算准确率
         acc = (all_preds == all_gold).float().mean().item()
+        # 计算整个 dev 集的平均 loss
+        avg_dev_loss = total_loss / total_examples
 
         model.train()
-        return acc, all_probs, all_preds, all_gold
+        return acc, all_probs, all_preds, all_gold, avg_dev_loss
 
     # ✅ Optimizer
     from torch.optim import AdamW
+    decay_params = []
+    no_decay_params = []
+    for name, param in model.named_parameters():
+        if not param.requires_grad:
+            continue
+        if any(nd in name for nd in ["bias", "LayerNorm.weight"]):
+            no_decay_params.append(param)
+        else:
+            decay_params.append(param)
+
     optimizer = AdamW(model.parameters(), lr=learning_rate)
 
+    #引入 wanb，用来记录
+    os.environ["WANDB_DIR"] = "/home/ubuntu/meditron-medmcqa-finetune/data"
+    if wandb.run is not None:
+        wandb.finish()
+    wandb.init(
+        project="medmcqa-meanpooling",
+        name=f"lr{learning_rate:.6f}_dropout{dropout:.3f}_alpha_{alpha:.3f}_seed{seed}",
+        config={
+            "learning_rate": learning_rate,
+            "dropout": dropout,
+            "kl_alpha": alpha,
+            "seed": seed,
+        },
+        settings=wandb.Settings(code_dir=".")  # 只跟踪代码，不自动同步大文件
+    )
     # ✅ Training loop
     epochs = 3
     accumulation_steps = 5
     global_step = 0
+    total_loss = 0.0
 
     for epoch in range(epochs):
         model.train()
         for i, batch in enumerate(train_dataloader):
             # --------- 1. 数据准备 ---------
             prompts = batch["prompts"]  # list[str]
-            # 如果 options 已经在 prompt 里，就不用额外处理
             # tokenizer 自动批量编码并 Padding
             enc = tokenizer(
                 prompts,
                 return_tensors="pt",
                 padding=True,
                 truncation=True,
-                max_length=512
+                max_length=768
             )
             input_ids = enc["input_ids"].to(device)
             attention_mask = enc["attention_mask"].to(device)
@@ -315,53 +352,63 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
                 kl_alpha=alpha
             )
             (loss/accumulation_steps).backward()
-
+            total_loss += loss.item()
             if (i + 1) % accumulation_steps == 0:
                 optimizer.step()
                 optimizer.zero_grad()
                 global_step += 1
 
-        # if epoch >=0:
-        #     save_path = base_dir / "data" / "log" / "train_24.csv"
-        #     dev_acc, probs, preds, gold = evaluate_on_dev(
-        #         model=model,
-        #         tokenizer=tokenizer,
-        #         dev_dataset=dev_eval_subset,
-        #         batch_size=3,
-        #         device="cuda",
-        #     )
-        #     print(f"Dev accuracy: {dev_acc:.4f}")
-        #     log_final_accuracy_to_csv(epoch + 1, lora_rank, dropout, learning_rate, alpha, dev_acc, save_path, 0)
+            wandb_save_step = 20
+            if (global_step+1) % wandb_save_step == 0:
+                avg_train_loss = total_loss / (wandb_save_step * accumulation_steps)
+                wandb.log({"train_loss": avg_train_loss}, step=global_step)
+                total_loss = 0.0
 
-    save_path = base_dir / "data" / "log" / "train_24.csv"
-    dev_acc, probs, preds, gold = evaluate_on_dev(
-        model=model,
-        tokenizer=tokenizer,
-        dev_dataset=dev_eval_subset,
-        batch_size=3,
-        device="cuda",
-    )
-    print(
-        f"Final accuracy: {dev_acc:.4f} | "
-        f"dropout={dropout:.3f}, "
-        f"lr={learning_rate:.6f}, "
-        f"alpha={alpha:.3f}, "
-        f"seed={seed}"
-    )
-    log_final_accuracy_to_csv(epoch + 1, lora_rank, dropout, learning_rate, alpha, dev_acc, save_path, 1)
+        if epoch >=0:
+            save_path = base_dir / "data" / "log" / "train_24.csv"
+            dev_acc, probs, preds, gold, dev_loss = evaluate_on_dev(
+                model=model,
+                tokenizer=tokenizer,
+                dev_dataset=dev_eval_subset,
+                batch_size=3,
+                device="cuda",
+            )
+            print(f"Epoch: {epoch+1}, Dev accuracy: {dev_acc:.4f}")
+            wandb.log({
+                "dev_loss": dev_loss,
+                "dev_acc": dev_acc
+            }, step=global_step)
+            log_final_accuracy_to_csv(epoch + 1, lora_rank, dropout, learning_rate, alpha, seed, dev_acc, save_path, 0)
+
+    # save_path = base_dir / "data" / "log" / "train_24.csv"
+    # dev_acc, probs, preds, gold, dev_loss = evaluate_on_dev(
+    #     model=model,
+    #     tokenizer=tokenizer,
+    #     dev_dataset=dev_eval_subset,
+    #     batch_size=3,
+    #     device="cuda",
+    # )
+    # print(
+    #     f"Final accuracy: {dev_acc:.4f} | "
+    #     f"dropout={dropout:.3f}, "
+    #     f"lr={learning_rate:.6f}, "
+    #     f"alpha={alpha:.3f}, "
+    #     f"seed={seed}"
+    # )
+    # log_final_accuracy_to_csv(epoch + 1, lora_rank, dropout, learning_rate, alpha, seed, dev_acc, save_path, 1)
     return dev_acc
 
 
-def log_final_accuracy_to_csv(epoch, lora_rank, dropout, lr, accuracy, alpha,  log_path, is_final=0):
+def log_final_accuracy_to_csv(epoch, lora_rank, dropout, lr, alpha,seed, accuracy, log_path, is_final=0):
     file_exists = Path(log_path).exists()
     with open(log_path, mode="a", newline='') as f:
         writer = csv.writer(f)
         if not file_exists:
-            writer.writerow(["epoch", "lora_rank", "dropout", "lr", "alpha", "accuracy"])
+            writer.writerow(["epoch", "lora_rank", "dropout", "lr", "alpha", "seed", "accuracy"])
         if not is_final:
-            writer.writerow([epoch, lora_rank, dropout, lr, alpha, f"{accuracy:.4f}"])
+            writer.writerow([epoch, lora_rank, dropout, lr, alpha, seed, f"{accuracy:.4f}"])
         else:
-            writer.writerow(["final_accuracy", lora_rank, dropout, lr, alpha, f"{accuracy:.4f}"])
+            writer.writerow(["final_accuracy", lora_rank, dropout, lr, alpha, seed, f"{accuracy:.4f}"])
 
 
 # top_configs = [
@@ -408,14 +455,14 @@ log_dir.mkdir(parents=True, exist_ok=True)
 db_path = log_dir / "train_24.db"
 
 # ✅ 固定3个种子
-seed_list = [34, 7, 123]
+seed_list = [42, 7, 123]
 
 # ✅ 目标函数：每组超参跑3个seed，取平均acc作为目标
 def objective(trial):
     # 超参搜索空间
-    lr = trial.suggest_float("learning_rate", 7e-5, 1.5e-4, log=True)
-    alpha = trial.suggest_float("alpha", 0.2, 0.5)
-    dropout = trial.suggest_float("dropout", 0.1, 0.2)
+    lr = trial.suggest_float("learning_rate", 7e-5, 1.4e-4, log=True)
+    alpha = trial.suggest_float("alpha", 0.25, 0.45)
+    dropout = trial.suggest_float("dropout", 0.12, 0.2)
 
     acc_list = []
 
