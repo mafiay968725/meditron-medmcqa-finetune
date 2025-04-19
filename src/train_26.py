@@ -378,7 +378,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
             wandb.log({
                 "dev_loss": dev_loss,
                 "dev_acc": dev_acc
-            }, step=epoch)
+            }, step=global_step)
             log_final_accuracy_to_csv(epoch + 1, lora_rank, dropout, learning_rate, alpha, seed, dev_acc, save_path, 0)
 
     # save_path = base_dir / "data" / "log" / "train_26.csv"
