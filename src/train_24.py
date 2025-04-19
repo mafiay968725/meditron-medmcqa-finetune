@@ -314,7 +314,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
                 gold_label=hard_labels,  # 命名传参避免顺序错位
                 kl_alpha=alpha
             )
-            loss.backward()
+            (loss/accumulation_steps).backward()
 
             if (i + 1) % accumulation_steps == 0:
                 optimizer.step()
