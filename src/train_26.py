@@ -281,7 +281,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
         avg_dev_loss = total_loss / total_examples
 
         model.train()
-        return acc, all_probs, all_preds, all_gold, dev_loss
+        return acc, all_probs, all_preds, all_gold, avg_dev_loss
 
     # ✅ Optimizer
     from torch.optim import AdamW
