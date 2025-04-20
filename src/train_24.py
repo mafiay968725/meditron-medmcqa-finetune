@@ -166,7 +166,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
     # 划分 train_eval_subset：从训练集划出 1000 条用于训练中评估准确率（early stopping）
     train_dataset = train_dataset.shuffle(seed=42)
     dev_dataset = dev_dataset.shuffle(seed=42)
-    train_subset = train_dataset.select(range(10000))
+    train_subset = train_dataset.select(range(30000))
     # 打乱验证集，划分出两个部分
     dev_eval_subset = dev_dataset.select(range(1000))  # ⬅️ 每轮评估准确率
     dev_final_subset = dev_dataset.select(range(1000, len(dev_dataset)))  # ⬅️ 最终评估准确率
@@ -202,7 +202,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
             model,
             tokenizer,
             dev_dataset,
-            batch_size: int = 2,
+            batch_size: int = 3,
             device: str = "cuda",
     ):
         """
@@ -245,7 +245,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
 
         with torch.no_grad():
             for batch in dev_loader:
-                prompts = batch["prompts"]  # ✔️ 用复数键
+                prompts = batch["prompts"]  
                 gold_labels = batch["hard_labels"].to(device)  # (B,)
 
                 enc = tokenizer(
@@ -298,14 +298,20 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
         else:
             decay_params.append(param)
 
-    optimizer = AdamW(model.parameters(), lr=learning_rate)
+    optimizer = AdamW(
+        [
+            {"params": decay_params, "weight_decay": 0.01},
+            {"params": no_decay_params, "weight_decay": 0.0},
+        ],
+        lr=learning_rate
+    )
 
     #引入 wanb，用来记录
     os.environ["WANDB_DIR"] = "/home/ubuntu/meditron-medmcqa-finetune/data"
     if wandb.run is not None:
         wandb.finish()
     wandb.init(
-        project="medmcqa-meanpooling",
+        project="medmcqa-meanpooling-weightdecay-30k",
         name=f"lr{learning_rate:.6f}_dropout{dropout:.3f}_alpha_{alpha:.3f}_seed{seed}",
         config={
             "learning_rate": learning_rate,
@@ -316,7 +322,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
         settings=wandb.Settings(code_dir=".")  # 只跟踪代码，不自动同步大文件
     )
     # ✅ Training loop
-    epochs = 3
+    epochs = 4
     accumulation_steps = 5
     global_step = 0
     total_loss = 0.0
@@ -326,6 +332,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
         for i, batch in enumerate(train_dataloader):
             # --------- 1. 数据准备 ---------
             prompts = batch["prompts"]  # list[str]
+            # 如果 options 已经在 prompt 里，就不用额外处理
             # tokenizer 自动批量编码并 Padding
             enc = tokenizer(
                 prompts,
@@ -357,8 +364,8 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
                 optimizer.zero_grad()
                 global_step += 1
 
-            wandb_save_step = 20
-            if (global_step+1) % wandb_save_step == 0:
+            wandb_save_step = 80
+            if global_step % wandb_save_step == 0 and global_step != 0:
                 avg_train_loss = total_loss / (wandb_save_step * accumulation_steps)
                 wandb.log({"train_loss": avg_train_loss}, step=global_step)
                 total_loss = 0.0
@@ -410,96 +417,96 @@ def log_final_accuracy_to_csv(epoch, lora_rank, dropout, lr, alpha,seed, accurac
             writer.writerow(["final_accuracy", lora_rank, dropout, lr, alpha, seed, f"{accuracy:.4f}"])
 
 
-# top_configs = [
-#     {"lora_rank": 16, "dropout": 0.15, "lr": 1e-4,  "alpha": 0.35},
-#
-# ]
-# seed_list = [34, 7, 123]
-#
-# # 3️⃣ 逐超参组合 × 逐 seed 训练 → 取均值
-# for i, cfg in enumerate(top_configs):
-#     print(f"\n🚀 Hyper‑Set {i} → lora_rank={cfg['lora_rank']}, "
-#           f"dropout={cfg['dropout']}, lr={cfg['lr']:.6f}, alpha={cfg['alpha']:.2f}")
-#
-#     seed_scores = []      # 存放同一超参下，不同 seed 的验证准确率
-#
-#     for sd in seed_list:
-#         print(f"    ▶ Seed {sd}...", end="", flush=True)
-#
-#         score = train_model(                 # <‑‑ 你的训练函数
-#             lora_rank      = cfg["lora_rank"],
-#             dropout        = cfg["dropout"],
-#             learning_rate  = cfg["lr"],
-#             alpha          = cfg["alpha"],
-#             seed           = sd             # 关键：把 seed 传进去
-#         )
-#
-#         seed_scores.append(score)
-#         print(f"  acc={score:.4f}")
-#
-#     # 计算平均 / 方差
-#     mean_acc = float(np.mean(seed_scores))
-#     std_acc  = float(np.std(seed_scores))
-#
-#     print(f"✅ Hyper‑Set {i}  mean‑acc={mean_acc:.4f}  std={std_acc:.4f}")
+top_configs = [
+    {"lora_rank": 16, "dropout": 0.163, "lr": 7.7e-5,  "alpha": 0.44},
 
+]
+seed_list = [42]
 
-from pathlib import Path
-import optuna
-import numpy as np
+# 3️⃣ 逐超参组合 × 逐 seed 训练 → 取均值
+for i, cfg in enumerate(top_configs):
+    print(f"\n🚀 Hyper‑Set {i} → lora_rank={cfg['lora_rank']}, "
+          f"dropout={cfg['dropout']}, lr={cfg['lr']:.6f}, alpha={cfg['alpha']:.2f}")
 
-# ✅ 设置日志保存目录
-log_dir = Path("/home/ubuntu/meditron-medmcqa-finetune/data/log")
-log_dir.mkdir(parents=True, exist_ok=True)
-db_path = log_dir / "train_24.db"
+    seed_scores = []      # 存放同一超参下，不同 seed 的验证准确率
 
-# ✅ 固定3个种子
-seed_list = [42, 7, 123]
-
-# ✅ 目标函数：每组超参跑3个seed，取平均acc作为目标
-def objective(trial):
-    # 超参搜索空间
-    lr = trial.suggest_float("learning_rate", 7e-5, 1.4e-4, log=True)
-    alpha = trial.suggest_float("alpha", 0.25, 0.45)
-    dropout = trial.suggest_float("dropout", 0.12, 0.2)
-
-    acc_list = []
-
-    # 每个 seed 都独立训练一遍
     for sd in seed_list:
-        score = train_model(
-            lora_rank=16,
-            dropout=dropout,
-            learning_rate=lr,
-            alpha=alpha,
-            seed=sd   # 传入不同seed
+        print(f"    ▶ Seed {sd}...", end="", flush=True)
+
+        score = train_model(                 # <‑‑ 你的训练函数
+            lora_rank      = cfg["lora_rank"],
+            dropout        = cfg["dropout"],
+            learning_rate  = cfg["lr"],
+            alpha          = cfg["alpha"],
+            seed           = sd             # 关键：把 seed 传进去
         )
-        acc_list.append(score)
 
-    mean_score = float(np.mean(acc_list))
+        seed_scores.append(score)
+        print(f"  acc={score:.4f}")
 
-    print(
-        f"Trial {trial.number}: "
-        f"params={{'lora_rank': {16}, 'dropout': {dropout:.3f}, 'lr': {lr:.6f}, 'alpha': {alpha:.3f}}}, "
-        f"mean_acc={mean_score:.4f}"
-    )
+    # 计算平均 / 方差
+    mean_acc = float(np.mean(seed_scores))
+    std_acc  = float(np.std(seed_scores))
 
-    return mean_score   # 交给optuna的优化器去maximize
+    print(f"✅ Hyper‑Set {i}  mean‑acc={mean_acc:.4f}  std={std_acc:.4f}")
 
-# ✅ 使用 SQLite 持久化
-study = optuna.create_study(
-    direction="maximize",
-    study_name="meditron_lora_tuning",
-    storage=f"sqlite:///{db_path}",
-    load_if_exists=True
-)
 
-# ✅ 开始搜索
-try:
-    study.optimize(objective, n_trials=20, show_progress_bar=True)
-except KeyboardInterrupt:
-    print("🛑 手动中断调参，已保存当前进度。")
-
-# ✅ 最后输出结果
-print("🎯 最优参数:", study.best_params)
-print(f"✅ 最优平均准确率: {study.best_value:.4f}")
+# from pathlib import Path
+# import optuna
+# import numpy as np
+#
+# # ✅ 设置日志保存目录
+# log_dir = Path("/home/ubuntu/meditron-medmcqa-finetune/data/log")
+# log_dir.mkdir(parents=True, exist_ok=True)
+# db_path = log_dir / "train_24.db"
+#
+# # ✅ 固定3个种子
+# seed_list = [42, 7, 123]
+#
+# # ✅ 目标函数：每组超参跑3个seed，取平均acc作为目标
+# def objective(trial):
+#     # 超参搜索空间
+#     lr = trial.suggest_float("learning_rate", 7e-5, 1.2e-4, log=True)
+#     alpha = trial.suggest_float("alpha", 0.25, 0.45)
+#     dropout = trial.suggest_float("dropout", 0.12, 0.2)
+#
+#     acc_list = []
+#
+#     # 每个 seed 都独立训练一遍
+#     for sd in seed_list:
+#         score = train_model(
+#             lora_rank=16,
+#             dropout=dropout,
+#             learning_rate=lr,
+#             alpha=alpha,
+#             seed=sd   # 传入不同seed
+#         )
+#         acc_list.append(score)
+#
+#     mean_score = float(np.mean(acc_list))
+#
+#     print(
+#         f"Trial {trial.number}: "
+#         f"params={{'lora_rank': {16}, 'dropout': {dropout:.3f}, 'lr': {lr:.6f}, 'alpha': {alpha:.3f}}}, "
+#         f"mean_acc={mean_score:.4f}"
+#     )
+#
+#     return mean_score   # 交给optuna的优化器去maximize
+#
+# # ✅ 使用 SQLite
+# study = optuna.create_study(
+#     direction="maximize",
+#     study_name="meditron_lora_tuning",
+#     storage=f"sqlite:///{db_path}",
+#     load_if_exists=True
+# )
+#
+# # ✅ 开始搜索
+# try:
+#     study.optimize(objective, n_trials=20, show_progress_bar=True)
+# except KeyboardInterrupt:
+#     print("🛑 手动中断调参，已保存当前进度。")
+#
+# # ✅ 最后输出结果
+# print("🎯 最优参数:", study.best_params)
+# print(f"✅ 最优平均准确率: {study.best_value:.4f}")
