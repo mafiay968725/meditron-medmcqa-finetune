@@ -17,6 +17,7 @@ import numpy as np
 import wandb
 
 
+
 def set_seed(seed=42):
     random.seed(seed)
     np.random.seed(seed)
@@ -34,41 +35,28 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:64"
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
-    class AttentionPooling(nn.Module):
-        """
-        单头 attention pooling:
-        score = v^T tanh(W h_i)
-        """
-
-        def __init__(self, hidden_size: int, attn_hidden_size: int = 128, dropout: float = 0.1):
-            super().__init__()
-            self.W = nn.Linear(hidden_size, attn_hidden_size, bias=True)
-            self.v = nn.Linear(attn_hidden_size, 1, bias=False)
-            self.dropout = nn.Dropout(dropout)
-
-        def forward(self, hidden_states: torch.Tensor, attention_mask: torch.Tensor):
-            hidden_states = hidden_states.to(self.W.weight.dtype)
-            # hidden_states: (B, L, H); attention_mask: (B, L)
-            scores = self.v(torch.tanh(self.W(hidden_states))).squeeze(-1)  # (B, L)
-
-            # 把 padding 位置设为 -inf，避免被选中
-            scores = scores.masked_fill(attention_mask == 0, -1e4)
-
-            attn_weights = F.softmax(scores, dim=-1)  # (B, L)
-            attn_weights = self.dropout(attn_weights)  # 可选
-
-            # (B, L, 1) * (B, L, H) → (B, H)
-            pooled = torch.bmm(attn_weights.unsqueeze(1), hidden_states).squeeze(1)
-            return pooled  # (B, H)
-
     class DiscriminativeClassifier(nn.Module):
-        def __init__(self, base_model: nn.Module, num_labels: int = 4,
-                     attn_hidden_size: int = 128, attn_dropout: float = 0.15):
+        def __init__(self, base_model: nn.Module, num_labels: int = 4):
+            """
+            base_model: 已加载好LoRA、8bit等配置的 Causal LM
+            num_labels: 分类数目 (对MedMCQA为 4)
+            """
             super().__init__()
             self.base_model = base_model
+            self.num_labels = num_labels
+
+            # 从 base_model config 拿到 hidden_size
             self.hidden_size = base_model.config.hidden_size
-            self.pooler = AttentionPooling(self.hidden_size, attn_hidden_size, attn_dropout)
-            self.classifier = nn.Linear(self.hidden_size, num_labels)
+
+            # 线性分类头：输入 hidden_size，输出 num_labels
+            self.classifier = nn.Linear(self.hidden_size, self.num_labels)
+
+        def mean_pooling(self, last_hidden_state, attention_mask):
+            """简单的 mean pooling，根据 attention_mask 做加权平均。"""
+            input_mask_expanded = attention_mask.unsqueeze(-1).expand(last_hidden_state.size()).float()
+            sum_embeddings = torch.sum(last_hidden_state * input_mask_expanded, dim=1)
+            sum_mask = torch.clamp(input_mask_expanded.sum(dim=1), min=1e-9)
+            return sum_embeddings / sum_mask
 
         def forward(
                 self,
@@ -78,24 +66,102 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
                 gold_label=None,
                 kl_alpha=0.5
         ):
+            """
+            labels 期望是 soft label 分布, shape = (batch_size, 4).
+            如果 labels=None, 就只返回 logits.
+            """
             outputs = self.base_model(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
-                output_hidden_states=True,
+                output_hidden_states=True,  # 关键：要让底层模型输出 hidden_states
                 return_dict=True
             )
-            last_hidden_state = outputs.hidden_states[-1]  # (B, L, H)
-            pooled_output = self.pooler(last_hidden_state, attention_mask)
-            logits = self.classifier(pooled_output)  # (B, 4)
 
+            # 取最后一层 hidden state (B, seq_len, hidden_size)
+            last_hidden_state = outputs.hidden_states[-1]
+
+            # 做 mean pooling (或自己改成取最后一个token / CLS位置等)
+            pooled_output = self.mean_pooling(last_hidden_state, attention_mask)
+
+            # 得到分类 logits (B, 4)
+            logits = self.classifier(pooled_output)
+
+            # 训练模式：计算损失
             if labels is not None:
+                # log-softmax 再和 labels 做 kl_div
                 log_probs = F.log_softmax(logits, dim=-1)
+                # KL 散度损失，要求第二个参数是目标分布（软标签）
                 kl_loss = F.kl_div(log_probs, labels, reduction='batchmean')
+                # 交叉熵损失，gold_label 是正确类别的整数表示
                 ce_loss = F.cross_entropy(logits, gold_label)
                 loss = kl_alpha * kl_loss + (1 - kl_alpha) * ce_loss
                 return loss, logits
             else:
+                # 推理模式：只返回 logits
                 return logits
+
+    # class AttentionPooling(nn.Module):
+    #     """
+    #     单头 attention pooling:
+    #     score = v^T tanh(W h_i)
+    #     """
+    #
+    #     def __init__(self, hidden_size: int, attn_hidden_size: int = 128, dropout: float = 0.1):
+    #         super().__init__()
+    #         self.W = nn.Linear(hidden_size, attn_hidden_size, bias=True)
+    #         self.v = nn.Linear(attn_hidden_size, 1, bias=False)
+    #         self.dropout = nn.Dropout(dropout)
+    #
+    #     def forward(self, hidden_states: torch.Tensor, attention_mask: torch.Tensor):
+    #         hidden_states = hidden_states.to(self.W.weight.dtype)
+    #         # hidden_states: (B, L, H); attention_mask: (B, L)
+    #         scores = self.v(torch.tanh(self.W(hidden_states))).squeeze(-1)  # (B, L)
+    #
+    #         # 把 padding 位置设为 -inf，避免被选中
+    #         scores = scores.masked_fill(attention_mask == 0, -1e4)
+    #
+    #         attn_weights = F.softmax(scores, dim=-1)  # (B, L)
+    #         attn_weights = self.dropout(attn_weights)  # 可选
+    #
+    #         # (B, L, 1) * (B, L, H) → (B, H)
+    #         pooled = torch.bmm(attn_weights.unsqueeze(1), hidden_states).squeeze(1)
+    #         return pooled  # (B, H)
+    #
+    # class DiscriminativeClassifier(nn.Module):
+    #     def __init__(self, base_model: nn.Module, num_labels: int = 4,
+    #                  attn_hidden_size: int = 128, attn_dropout: float = 0.15):
+    #         super().__init__()
+    #         self.base_model = base_model
+    #         self.hidden_size = base_model.config.hidden_size
+    #         self.pooler = AttentionPooling(self.hidden_size, attn_hidden_size, attn_dropout)
+    #         self.classifier = nn.Linear(self.hidden_size, num_labels)
+    #
+    #     def forward(
+    #             self,
+    #             input_ids,
+    #             attention_mask=None,
+    #             labels=None,
+    #             gold_label=None,
+    #             kl_alpha=0.5
+    #     ):
+    #         outputs = self.base_model(
+    #             input_ids=input_ids,
+    #             attention_mask=attention_mask,
+    #             output_hidden_states=True,
+    #             return_dict=True
+    #         )
+    #         last_hidden_state = outputs.hidden_states[-1]  # (B, L, H)
+    #         pooled_output = self.pooler(last_hidden_state, attention_mask)
+    #         logits = self.classifier(pooled_output)  # (B, 4)
+    #
+    #         if labels is not None:
+    #             log_probs = F.log_softmax(logits, dim=-1)
+    #             kl_loss = F.kl_div(log_probs, labels, reduction='batchmean')
+    #             ce_loss = F.cross_entropy(logits, gold_label)
+    #             loss = kl_alpha * kl_loss + (1 - kl_alpha) * ce_loss
+    #             return loss, logits
+    #         else:
+    #             return logits
 
     # ✅ 路径设置
     base_dir = Path("/home/ubuntu/meditron-medmcqa-finetune")
@@ -163,7 +229,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
     # 划分 train_eval_subset：从训练集划出 1000 条用于训练中评估准确率（early stopping）
     train_dataset = train_dataset.shuffle(seed=42)
     dev_dataset = dev_dataset.shuffle(seed=42)
-    train_subset = train_dataset.select(range(10000))
+    train_subset = train_dataset.select(range(30000))
     # 打乱验证集，划分出两个部分
     dev_eval_subset = dev_dataset.select(range(1000))  # ⬅️ 每轮评估准确率
     dev_final_subset = dev_dataset.select(range(1000, len(dev_dataset)))  # ⬅️ 最终评估准确率
@@ -199,7 +265,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
             model,
             tokenizer,
             dev_dataset,
-            batch_size: int = 2,
+            batch_size: int = 3,
             device: str = "cuda",
     ):
         """
@@ -242,7 +308,8 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
 
         with torch.no_grad():
             for batch in dev_loader:
-                prompts = batch["prompts"]  # ✔️ 用复数键
+                prompts = batch["prompts"]
+
                 gold_labels = batch["hard_labels"].to(device)  # (B,)
 
                 enc = tokenizer(
@@ -308,8 +375,8 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
     if wandb.run is not None:
         wandb.finish()
     wandb.init(
-        project="medmcqa-attnpooling",
-        name=f"lr{learning_rate}_dropout{dropout}_alpha_{alpha}_seed{seed}",
+        project="medmcqa-meanpooling-weightdecay-30k",
+        name=f"lr{learning_rate:.6f}_dropout{dropout:.3f}_alpha_{alpha:.3f}_seed{seed}",
         config={
             "learning_rate": learning_rate,
             "dropout": dropout,
@@ -319,7 +386,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
         settings=wandb.Settings(code_dir=".")  # 只跟踪代码，不自动同步大文件
     )
     # ✅ Training loop
-    epochs = 3
+    epochs = 4
     accumulation_steps = 5
     global_step = 0
     total_loss = 0.0
@@ -336,7 +403,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
                 return_tensors="pt",
                 padding=True,
                 truncation=True,
-                max_length=512
+                max_length=768
             )
             input_ids = enc["input_ids"].to(device)
             attention_mask = enc["attention_mask"].to(device)
@@ -361,9 +428,9 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
                 optimizer.zero_grad()
                 global_step += 1
 
-            wandb_save_step = 20
-            if global_step % wandb_save_step == 0:
-                avg_train_loss = total_loss / wandb_save_step
+            wandb_save_step = 80
+            if global_step % wandb_save_step == 0 and global_step != 0:
+                avg_train_loss = total_loss / (wandb_save_step * accumulation_steps)
                 wandb.log({"train_loss": avg_train_loss}, step=global_step)
                 total_loss = 0.0
 
@@ -414,96 +481,96 @@ def log_final_accuracy_to_csv(epoch, lora_rank, dropout, lr, alpha,seed, accurac
             writer.writerow(["final_accuracy", lora_rank, dropout, lr, alpha, seed, f"{accuracy:.4f}"])
 
 
-# top_configs = [
-#     {"lora_rank": 16, "dropout": 0.15, "lr": 1e-4,  "alpha": 0.35},
-#
-# ]
-# seed_list = [34, 7, 123]
-#
-# # 3️⃣ 逐超参组合 × 逐 seed 训练 → 取均值
-# for i, cfg in enumerate(top_configs):
-#     print(f"\n🚀 Hyper‑Set {i} → lora_rank={cfg['lora_rank']}, "
-#           f"dropout={cfg['dropout']}, lr={cfg['lr']:.6f}, alpha={cfg['alpha']:.2f}")
-#
-#     seed_scores = []      # 存放同一超参下，不同 seed 的验证准确率
-#
-#     for sd in seed_list:
-#         print(f"    ▶ Seed {sd}...", end="", flush=True)
-#
-#         score = train_model(                 # <‑‑ 你的训练函数
-#             lora_rank      = cfg["lora_rank"],
-#             dropout        = cfg["dropout"],
-#             learning_rate  = cfg["lr"],
-#             alpha          = cfg["alpha"],
-#             seed           = sd             # 关键：把 seed 传进去
-#         )
-#
-#         seed_scores.append(score)
-#         print(f"  acc={score:.4f}")
-#
-#     # 计算平均 / 方差
-#     mean_acc = float(np.mean(seed_scores))
-#     std_acc  = float(np.std(seed_scores))
-#
-#     print(f"✅ Hyper‑Set {i}  mean‑acc={mean_acc:.4f}  std={std_acc:.4f}")
+top_configs = [
+    {"lora_rank": 16, "dropout": 0.194, "lr": 9.88e-5,  "alpha": 0.363},
 
+]
+seed_list = [42, 123, 7]
 
-from pathlib import Path
-import optuna
-import numpy as np
+# 3️⃣ 逐超参组合 × 逐 seed 训练 → 取均值
+for i, cfg in enumerate(top_configs):
+    print(f"\n🚀 Hyper‑Set {i} → lora_rank={cfg['lora_rank']}, "
+          f"dropout={cfg['dropout']}, lr={cfg['lr']:.6f}, alpha={cfg['alpha']:.2f}")
 
-# ✅ 设置日志保存目录
-log_dir = Path("/home/ubuntu/meditron-medmcqa-finetune/data/log")
-log_dir.mkdir(parents=True, exist_ok=True)
-db_path = log_dir / "train_26.db"
+    seed_scores = []      # 存放同一超参下，不同 seed 的验证准确率
 
-# ✅ 固定3个种子
-seed_list = [34, 7, 123]
-
-# ✅ 目标函数：每组超参跑3个seed，取平均acc作为目标
-def objective(trial):
-    # 超参搜索空间
-    lr = trial.suggest_float("learning_rate", 7e-5, 1.2e-4, log=True)
-    alpha = trial.suggest_float("alpha", 0.25, 0.45)
-    dropout = trial.suggest_float("dropout", 0.12, 0.2)
-
-    acc_list = []
-
-    # 每个 seed 都独立训练一遍
     for sd in seed_list:
-        score = train_model(
-            lora_rank=16,
-            dropout=dropout,
-            learning_rate=lr,
-            alpha=alpha,
-            seed=sd   # 传入不同seed
+        print(f"    ▶ Seed {sd}...", end="", flush=True)
+
+        score = train_model(                 # <‑‑ 你的训练函数
+            lora_rank      = cfg["lora_rank"],
+            dropout        = cfg["dropout"],
+            learning_rate  = cfg["lr"],
+            alpha          = cfg["alpha"],
+            seed           = sd             # 关键：把 seed 传进去
         )
-        acc_list.append(score)
 
-    mean_score = float(np.mean(acc_list))
+        seed_scores.append(score)
+        print(f"  acc={score:.4f}")
 
-    print(
-        f"Trial {trial.number}: "
-        f"params={{'lora_rank': {16}, 'dropout': {dropout:.3f}, 'lr': {lr:.6f}, 'alpha': {alpha:.3f}}}, "
-        f"mean_acc={mean_score:.4f}"
-    )
+    # 计算平均 / 方差
+    mean_acc = float(np.mean(seed_scores))
+    std_acc  = float(np.std(seed_scores))
 
-    return mean_score   # 交给optuna的优化器去maximize
+    print(f"✅ Hyper‑Set {i}  mean‑acc={mean_acc:.4f}  std={std_acc:.4f}")
 
-# ✅ 使用 SQLite 持久化
-study = optuna.create_study(
-    direction="maximize",
-    study_name="meditron_lora_tuning",
-    storage=f"sqlite:///{db_path}",
-    load_if_exists=True
-)
 
-# ✅ 开始搜索
-try:
-    study.optimize(objective, n_trials=20, show_progress_bar=True)
-except KeyboardInterrupt:
-    print("🛑 手动中断调参，已保存当前进度。")
-
-# ✅ 最后输出结果
-print("🎯 最优参数:", study.best_params)
-print(f"✅ 最优平均准确率: {study.best_value:.4f}")
+# from pathlib import Path
+# import optuna
+# import numpy as np
+#
+# # ✅ 设置日志保存目录
+# log_dir = Path("/home/ubuntu/meditron-medmcqa-finetune/data/log")
+# log_dir.mkdir(parents=True, exist_ok=True)
+# db_path = log_dir / "train_26.db"
+#
+# # ✅ 固定3个种子
+# seed_list = [42, 7, 123]
+#
+# # ✅ 目标函数：每组超参跑3个seed，取平均acc作为目标
+# def objective(trial):
+#     # 超参搜索空间
+#     lr = trial.suggest_float("learning_rate", 7e-5, 1.2e-4, log=True)
+#     alpha = trial.suggest_float("alpha", 0.25, 0.45)
+#     dropout = trial.suggest_float("dropout", 0.12, 0.2)
+#
+#     acc_list = []
+#
+#     # 每个 seed 都独立训练一遍
+#     for sd in seed_list:
+#         score = train_model(
+#             lora_rank=16,
+#             dropout=dropout,
+#             learning_rate=lr,
+#             alpha=alpha,
+#             seed=sd   # 传入不同seed
+#         )
+#         acc_list.append(score)
+#
+#     mean_score = float(np.mean(acc_list))
+#
+#     print(
+#         f"Trial {trial.number}: "
+#         f"params={{'lora_rank': {16}, 'dropout': {dropout:.3f}, 'lr': {lr:.6f}, 'alpha': {alpha:.3f}}}, "
+#         f"mean_acc={mean_score:.4f}"
+#     )
+#
+#     return mean_score   # 交给optuna的优化器去maximize
+#
+# # ✅ 使用 SQLite
+# study = optuna.create_study(
+#     direction="maximize",
+#     study_name="meditron_lora_tuning",
+#     storage=f"sqlite:///{db_path}",
+#     load_if_exists=True
+# )
+#
+# # ✅ 开始搜索
+# try:
+#     study.optimize(objective, n_trials=20, show_progress_bar=True)
+# except KeyboardInterrupt:
+#     print("🛑 手动中断调参，已保存当前进度。")
+#
+# # ✅ 最后输出结果
+# print("🎯 最优参数:", study.best_params)
+# print(f"✅ 最优平均准确率: {study.best_value:.4f}")
