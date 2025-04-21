@@ -482,10 +482,10 @@ def log_final_accuracy_to_csv(epoch, lora_rank, dropout, lr, alpha,seed, accurac
 
 
 top_configs = [
-    {"lora_rank": 16, "dropout": 0.163, "lr": 7.7e-5,  "alpha": 0.44},
+    {"lora_rank": 16, "dropout": 0.194, "lr": 9.88e-5,  "alpha": 0.363},
 
 ]
-seed_list = [42]
+seed_list = [42, 123, 7]
 
 # 3️⃣ 逐超参组合 × 逐 seed 训练 → 取均值
 for i, cfg in enumerate(top_configs):
