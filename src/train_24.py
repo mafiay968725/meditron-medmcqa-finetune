@@ -106,13 +106,15 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
         score = v^T tanh(W h_i)
         """
 
-        def __init__(self, hidden_size: int, attn_hidden_size: int = 128, dropout: float = 0.1):
+        def __init__(self, hidden_size: int, attn_hidden_size: int = 128, dropout: float = 0.15):
             super().__init__()
+            self.layernorm = nn.LayerNorm(hidden_size)
             self.W = nn.Linear(hidden_size, attn_hidden_size, bias=True)
             self.v = nn.Linear(attn_hidden_size, 1, bias=False)
             self.dropout = nn.Dropout(dropout)
 
         def forward(self, hidden_states: torch.Tensor, attention_mask: torch.Tensor):
+            hidden_states = self.layernorm(hidden_states)# 归一化 hidden states
             hidden_states = hidden_states.to(self.W.weight.dtype)
             # hidden_states: (B, L, H); attention_mask: (B, L)
             scores = self.v(torch.tanh(self.W(hidden_states))).squeeze(-1)  # (B, L)
@@ -376,7 +378,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
         wandb.finish()
     wandb.init(
         project="medmcqa-attpooling-weightdecay-30k",
-        name=f"lr{learning_rate:.6f}_dropout{dropout:.3f}_alpha_{alpha:.3f}_seed{seed}",
+        name=f"lr{learning_rate:.6f}_dropout{dropout:.3f}_alpha_{alpha:.3f}_seed{seed}_layernorm",
         config={
             "learning_rate": learning_rate,
             "dropout": dropout,
@@ -485,7 +487,7 @@ top_configs = [
     {"lora_rank": 16, "dropout": 0.163, "lr": 7.7e-5,  "alpha": 0.44},
 
 ]
-seed_list = [123, 7]
+seed_list = [42]
 
 # 3️⃣ 逐超参组合 × 逐 seed 训练 → 取均值
 for i, cfg in enumerate(top_configs):
