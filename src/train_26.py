@@ -35,106 +35,28 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:64"
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
-    class DiscriminativeClassifier(nn.Module):
-        def __init__(self, base_model: nn.Module, num_labels: int = 4):
-            """
-            base_model: 已加载好LoRA、8bit等配置的 Causal LM
-            num_labels: 分类数目 (对MedMCQA为 4)
-            """
-            super().__init__()
-            self.base_model = base_model
-            self.num_labels = num_labels
-
-            # 从 base_model config 拿到 hidden_size
-            self.hidden_size = base_model.config.hidden_size
-
-            # 线性分类头：输入 hidden_size，输出 num_labels
-            self.classifier = nn.Linear(self.hidden_size, self.num_labels)
-
-        def mean_pooling(self, last_hidden_state, attention_mask):
-            """简单的 mean pooling，根据 attention_mask 做加权平均。"""
-            input_mask_expanded = attention_mask.unsqueeze(-1).expand(last_hidden_state.size()).float()
-            sum_embeddings = torch.sum(last_hidden_state * input_mask_expanded, dim=1)
-            sum_mask = torch.clamp(input_mask_expanded.sum(dim=1), min=1e-9)
-            return sum_embeddings / sum_mask
-
-        def forward(
-                self,
-                input_ids,
-                attention_mask=None,
-                labels=None,
-                gold_label=None,
-                kl_alpha=0.5
-        ):
-            """
-            labels 期望是 soft label 分布, shape = (batch_size, 4).
-            如果 labels=None, 就只返回 logits.
-            """
-            outputs = self.base_model(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                output_hidden_states=True,  # 关键：要让底层模型输出 hidden_states
-                return_dict=True
-            )
-
-            # 取最后一层 hidden state (B, seq_len, hidden_size)
-            last_hidden_state = outputs.hidden_states[-1]
-
-            # 做 mean pooling (或自己改成取最后一个token / CLS位置等)
-            pooled_output = self.mean_pooling(last_hidden_state, attention_mask)
-
-            # 得到分类 logits (B, 4)
-            logits = self.classifier(pooled_output)
-
-            # 训练模式：计算损失
-            if labels is not None:
-                # log-softmax 再和 labels 做 kl_div
-                log_probs = F.log_softmax(logits, dim=-1)
-                # KL 散度损失，要求第二个参数是目标分布（软标签）
-                kl_loss = F.kl_div(log_probs, labels, reduction='batchmean')
-                # 交叉熵损失，gold_label 是正确类别的整数表示
-                ce_loss = F.cross_entropy(logits, gold_label)
-                loss = kl_alpha * kl_loss + (1 - kl_alpha) * ce_loss
-                return loss, logits
-            else:
-                # 推理模式：只返回 logits
-                return logits
-
-    # class AttentionPooling(nn.Module):
-    #     """
-    #     单头 attention pooling:
-    #     score = v^T tanh(W h_i)
-    #     """
-    #
-    #     def __init__(self, hidden_size: int, attn_hidden_size: int = 128, dropout: float = 0.1):
-    #         super().__init__()
-    #         self.W = nn.Linear(hidden_size, attn_hidden_size, bias=True)
-    #         self.v = nn.Linear(attn_hidden_size, 1, bias=False)
-    #         self.dropout = nn.Dropout(dropout)
-    #
-    #     def forward(self, hidden_states: torch.Tensor, attention_mask: torch.Tensor):
-    #         hidden_states = hidden_states.to(self.W.weight.dtype)
-    #         # hidden_states: (B, L, H); attention_mask: (B, L)
-    #         scores = self.v(torch.tanh(self.W(hidden_states))).squeeze(-1)  # (B, L)
-    #
-    #         # 把 padding 位置设为 -inf，避免被选中
-    #         scores = scores.masked_fill(attention_mask == 0, -1e4)
-    #
-    #         attn_weights = F.softmax(scores, dim=-1)  # (B, L)
-    #         attn_weights = self.dropout(attn_weights)  # 可选
-    #
-    #         # (B, L, 1) * (B, L, H) → (B, H)
-    #         pooled = torch.bmm(attn_weights.unsqueeze(1), hidden_states).squeeze(1)
-    #         return pooled  # (B, H)
-    #
     # class DiscriminativeClassifier(nn.Module):
-    #     def __init__(self, base_model: nn.Module, num_labels: int = 4,
-    #                  attn_hidden_size: int = 128, attn_dropout: float = 0.15):
+    #     def __init__(self, base_model: nn.Module, num_labels: int = 4):
+    #         """
+    #         base_model: 已加载好LoRA、8bit等配置的 Causal LM
+    #         num_labels: 分类数目 (对MedMCQA为 4)
+    #         """
     #         super().__init__()
     #         self.base_model = base_model
+    #         self.num_labels = num_labels
+    #
+    #         # 从 base_model config 拿到 hidden_size
     #         self.hidden_size = base_model.config.hidden_size
-    #         self.pooler = AttentionPooling(self.hidden_size, attn_hidden_size, attn_dropout)
-    #         self.classifier = nn.Linear(self.hidden_size, num_labels)
+    #
+    #         # 线性分类头：输入 hidden_size，输出 num_labels
+    #         self.classifier = nn.Linear(self.hidden_size, self.num_labels)
+    #
+    #     def mean_pooling(self, last_hidden_state, attention_mask):
+    #         """简单的 mean pooling，根据 attention_mask 做加权平均。"""
+    #         input_mask_expanded = attention_mask.unsqueeze(-1).expand(last_hidden_state.size()).float()
+    #         sum_embeddings = torch.sum(last_hidden_state * input_mask_expanded, dim=1)
+    #         sum_mask = torch.clamp(input_mask_expanded.sum(dim=1), min=1e-9)
+    #         return sum_embeddings / sum_mask
     #
     #     def forward(
     #             self,
@@ -144,24 +66,111 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
     #             gold_label=None,
     #             kl_alpha=0.5
     #     ):
+    #         """
+    #         labels 期望是 soft label 分布, shape = (batch_size, 4).
+    #         如果 labels=None, 就只返回 logits.
+    #         """
     #         outputs = self.base_model(
     #             input_ids=input_ids,
     #             attention_mask=attention_mask,
-    #             output_hidden_states=True,
+    #             output_hidden_states=True,  # 关键：要让底层模型输出 hidden_states
     #             return_dict=True
     #         )
-    #         last_hidden_state = outputs.hidden_states[-1]  # (B, L, H)
-    #         pooled_output = self.pooler(last_hidden_state, attention_mask)
-    #         logits = self.classifier(pooled_output)  # (B, 4)
     #
+    #         # 取最后一层 hidden state (B, seq_len, hidden_size)
+    #         last_hidden_state = outputs.hidden_states[-1]
+    #
+    #         # 做 mean pooling (或自己改成取最后一个token / CLS位置等)
+    #         pooled_output = self.mean_pooling(last_hidden_state, attention_mask)
+    #
+    #         # 得到分类 logits (B, 4)
+    #         logits = self.classifier(pooled_output)
+    #
+    #         # 训练模式：计算损失
     #         if labels is not None:
+    #             # log-softmax 再和 labels 做 kl_div
     #             log_probs = F.log_softmax(logits, dim=-1)
+    #             # KL 散度损失，要求第二个参数是目标分布（软标签）
     #             kl_loss = F.kl_div(log_probs, labels, reduction='batchmean')
+    #             # 交叉熵损失，gold_label 是正确类别的整数表示
     #             ce_loss = F.cross_entropy(logits, gold_label)
     #             loss = kl_alpha * kl_loss + (1 - kl_alpha) * ce_loss
     #             return loss, logits
     #         else:
+    #             # 推理模式：只返回 logits
     #             return logits
+
+    class AttentionPooling(nn.Module):
+        """
+        单头 attention pooling:
+        score = v^T tanh(W h_i)
+        """
+
+        def __init__(self, hidden_size: int, attn_hidden_size: int = 128, dropout: float = 0.15):
+            super().__init__()
+            # self.layernorm = nn.LayerNorm(hidden_size)
+            self.W = nn.Linear(hidden_size, attn_hidden_size, bias=True)
+            self.v = nn.Linear(attn_hidden_size, 1, bias=False)
+            self.dropout = nn.Dropout(dropout)
+
+        def forward(self, hidden_states: torch.Tensor, attention_mask: torch.Tensor):
+            # hidden_states = hidden_states.to(self.layernorm.weight.dtype)
+            # hidden_states = self.layernorm(hidden_states) #进行层归一化
+            hidden_states = hidden_states.to(self.W.weight.dtype)
+            # hidden_states: (B, L, H); attention_mask: (B, L)
+            scores = self.v(torch.tanh(self.W(hidden_states))).squeeze(-1)  # (B, L)
+
+            # 把 padding 位置设为 -inf，避免被选中
+            scores = scores.masked_fill(attention_mask == 0, -1e4)
+
+            attn_weights = F.softmax(scores, dim=-1)  # (B, L)
+            attn_weights = self.dropout(attn_weights)  # 可选
+
+            # (B, L, 1) * (B, L, H) → (B, H)
+            pooled = torch.bmm(attn_weights.unsqueeze(1), hidden_states).squeeze(1)
+            return pooled  # (B, H)
+
+    class DiscriminativeClassifier(nn.Module):
+        def __init__(self, base_model: nn.Module, num_labels: int = 4,
+                     attn_hidden_size: int = 128, attn_dropout: float = 0.15, classifier_dropout = 0.15):
+            super().__init__()
+            self.base_model = base_model
+            self.hidden_size = base_model.config.hidden_size
+            self.pooler = AttentionPooling(self.hidden_size, attn_hidden_size, attn_dropout)
+            # self.classifier = nn.Linear(self.hidden_size, num_labels)
+            self.classifier = nn.Sequential(
+                nn.Linear(self.hidden_size, self.hidden_size // 2),  # 隐藏层
+                nn.ReLU(),  # 激活函数
+                nn.Dropout(classifier_dropout),  # 插入一个固定Dropout
+                nn.Linear(self.hidden_size // 2, num_labels)  # 输出层
+            )
+
+        def forward(
+                self,
+                input_ids,
+                attention_mask=None,
+                labels=None,
+                gold_label=None,
+                kl_alpha=0.5
+        ):
+            outputs = self.base_model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                output_hidden_states=True,
+                return_dict=True
+            )
+            last_hidden_state = outputs.hidden_states[-1]  # (B, L, H)
+            pooled_output = self.pooler(last_hidden_state, attention_mask)
+            logits = self.classifier(pooled_output)  # (B, 4)
+
+            if labels is not None:
+                log_probs = F.log_softmax(logits, dim=-1)
+                kl_loss = F.kl_div(log_probs, labels, reduction='batchmean')
+                ce_loss = F.cross_entropy(logits, gold_label)
+                loss = kl_alpha * kl_loss + (1 - kl_alpha) * ce_loss
+                return loss, logits
+            else:
+                return logits
 
     # ✅ 路径设置
     base_dir = Path("/home/ubuntu/meditron-medmcqa-finetune")
@@ -186,7 +195,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
         device_map="auto",
         quantization_config=bnb_config,  # 8-bit
         torch_dtype=torch.float16,
-        local_files_only=True
+        local_files_only=True,
     )
     # 4) 给原模型注入 LoRA adapter (这里一般是 Causal LM 的任务类型)
     lora_config = LoraConfig(
@@ -375,7 +384,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
     if wandb.run is not None:
         wandb.finish()
     wandb.init(
-        project="medmcqa-meanpooling-weightdecay-30k",
+        project="medmcqa-attpooling-mlp-30k",
         name=f"lr{learning_rate:.6f}_dropout{dropout:.3f}_alpha_{alpha:.3f}_seed{seed}",
         config={
             "learning_rate": learning_rate,
@@ -483,9 +492,9 @@ def log_final_accuracy_to_csv(epoch, lora_rank, dropout, lr, alpha,seed, accurac
 
 top_configs = [
     {"lora_rank": 16, "dropout": 0.163, "lr": 7.7e-5,  "alpha": 0.44},
-
+    {"lora_rank": 16, "dropout": 0.163, "lr": 8.8e-5,  "alpha": 0.44},
 ]
-seed_list = [123, 7]
+seed_list = [42]
 
 # 3️⃣ 逐超参组合 × 逐 seed 训练 → 取均值
 for i, cfg in enumerate(top_configs):
