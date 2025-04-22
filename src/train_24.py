@@ -114,8 +114,8 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
             self.dropout = nn.Dropout(dropout)
 
         def forward(self, hidden_states: torch.Tensor, attention_mask: torch.Tensor):
-            self.layernorm = self.layernorm.to(hidden_states.dtype)
-            hidden_states = self.layernorm(hidden_states)# 归一化 hidden states
+            hidden_states = hidden_states.to(self.layernorm.weight.dtype)
+            hidden_states = self.layernorm(hidden_states) #进行层归一化
             hidden_states = hidden_states.to(self.W.weight.dtype)
             # hidden_states: (B, L, H); attention_mask: (B, L)
             scores = self.v(torch.tanh(self.W(hidden_states))).squeeze(-1)  # (B, L)
