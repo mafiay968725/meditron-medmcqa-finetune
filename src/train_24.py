@@ -114,6 +114,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
             self.dropout = nn.Dropout(dropout)
 
         def forward(self, hidden_states: torch.Tensor, attention_mask: torch.Tensor):
+            self.layernorm = self.layernorm.to(hidden_states.dtype)
             hidden_states = self.layernorm(hidden_states)# 归一化 hidden states
             hidden_states = hidden_states.to(self.W.weight.dtype)
             # hidden_states: (B, L, H); attention_mask: (B, L)
@@ -189,7 +190,6 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
         quantization_config=bnb_config,  # 8-bit
         torch_dtype=torch.float16,
         local_files_only=True,
-        # llm_int8_enable_fp32_cpu_offload = True
     )
     # 4) 给原模型注入 LoRA adapter (这里一般是 Causal LM 的任务类型)
     lora_config = LoraConfig(
