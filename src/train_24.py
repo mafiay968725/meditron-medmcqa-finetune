@@ -139,10 +139,10 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
             self.pooler = AttentionPooling(self.hidden_size, attn_hidden_size, attn_dropout)
             # self.classifier = nn.Linear(self.hidden_size, num_labels)
             self.classifier = nn.Sequential(
-                nn.Linear(self.hidden_size, self.hidden_size // 2),  # 隐藏层，保持同样的hidden size
+                nn.Linear(self.hidden_size, self.hidden_size // 4),  # 隐藏层，保持同样的hidden size
                 nn.ReLU(),  # 激活函数
                 nn.Dropout(classifier_dropout),  # 插入一个固定Dropout
-                nn.Linear(self.hidden_size // 2, num_labels)  # 输出层
+                nn.Linear(self.hidden_size // 4, num_labels)  # 输出层
             )
 
         def forward(
@@ -361,23 +361,24 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
 
     # ✅ Optimizer
     from torch.optim import AdamW
-    decay_params = []
-    no_decay_params = []
+    decay_classifier = []
+    decay_rest = []
+    no_decay = []
+
     for name, param in model.named_parameters():
         if not param.requires_grad:
             continue
-        if any(nd in name for nd in ["bias", "LayerNorm.weight"]):
-            no_decay_params.append(param)
+        if "classifier" in name:
+            decay_classifier.append(param)  # 分类层独立设高 weight decay
+        elif any(nd in name for nd in ["bias", "LayerNorm.weight"]):
+            no_decay.append(param)
         else:
-            decay_params.append(param)
-
-    optimizer = AdamW(
-        [
-            {"params": decay_params, "weight_decay": 0.01},
-            {"params": no_decay_params, "weight_decay": 0.0},
-        ],
-        lr=learning_rate
-    )
+            decay_rest.append(param)  # LoRA + 主干结构
+    optimizer = AdamW([
+        {"params": decay_rest, "weight_decay": 0.01},  # 主干/LoRA部分
+        {"params": decay_classifier, "weight_decay": 0.05},  # 分类层强正则
+        {"params": no_decay, "weight_decay": 0.0}  # 常规例外
+    ], lr=learning_rate)
 
     #引入 wanb，用来记录
     os.environ["WANDB_DIR"] = "/home/ubuntu/meditron-medmcqa-finetune/data"
@@ -385,7 +386,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
         wandb.finish()
     wandb.init(
         project="medmcqa-attpooling-mlp-30k",
-        name=f"lr{learning_rate:.6f}_dropout{dropout:.3f}_alpha_{alpha:.3f}_seed{seed}",
+        name=f"lr{learning_rate:.6f}_dropout{dropout:.3f}_alpha_{alpha:.3f}_seed{seed}_highdecay",
         config={
             "learning_rate": learning_rate,
             "dropout": dropout,
@@ -491,7 +492,8 @@ def log_final_accuracy_to_csv(epoch, lora_rank, dropout, lr, alpha,seed, accurac
 
 
 top_configs = [
-    {"lora_rank": 16, "dropout": 0.163, "lr": 0.000060, "alpha": 0.44},
+    {"lora_rank": 16, "dropout": 0.163, "lr": 0.000065, "alpha": 0.30},
+    {"lora_rank": 16, "dropout": 0.163, "lr": 0.000055, "alpha": 0.30},
 ]
 seed_list = [42]
 
