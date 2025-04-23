@@ -132,17 +132,17 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
 
     class DiscriminativeClassifier(nn.Module):
         def __init__(self, base_model: nn.Module, num_labels: int = 4,
-                     attn_hidden_size: int = 128, attn_dropout: float = 0.15, classifier_dropout = 0.15):
+                     attn_hidden_size: int = 128, attn_dropout: float = 0.15, classifier_dropout = 0.2):
             super().__init__()
             self.base_model = base_model
             self.hidden_size = base_model.config.hidden_size
             self.pooler = AttentionPooling(self.hidden_size, attn_hidden_size, attn_dropout)
             # self.classifier = nn.Linear(self.hidden_size, num_labels)
             self.classifier = nn.Sequential(
-                nn.Linear(self.hidden_size, self.hidden_size // 2),  # 隐藏层
+                nn.Linear(self.hidden_size, self.hidden_size // 4),  # 隐藏层
                 nn.ReLU(),  # 激活函数
                 nn.Dropout(classifier_dropout),  # 插入一个固定Dropout
-                nn.Linear(self.hidden_size // 2, num_labels)  # 输出层
+                nn.Linear(self.hidden_size // 4, num_labels)  # 输出层
             )
 
         def forward(
@@ -491,8 +491,9 @@ def log_final_accuracy_to_csv(epoch, lora_rank, dropout, lr, alpha,seed, accurac
 
 
 top_configs = [
-    {"lora_rank": 16, "dropout": 0.163, "lr": 7.7e-5,  "alpha": 0.44},
-    {"lora_rank": 16, "dropout": 0.163, "lr": 8.8e-5,  "alpha": 0.44},
+    {"lora_rank": 16, "dropout": 0.163, "lr": 0.000055, "alpha": 0.30},
+    {"lora_rank": 16, "dropout": 0.163, "lr": 0.000065, "alpha": 0.30},
+    {"lora_rank": 16, "dropout": 0.163, "lr": 0.000070, "alpha": 0.20},
 ]
 seed_list = [42]
 
