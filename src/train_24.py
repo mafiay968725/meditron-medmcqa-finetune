@@ -108,14 +108,14 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
 
         def __init__(self, hidden_size: int, attn_hidden_size: int = 128, dropout: float = 0.15):
             super().__init__()
-            self.layernorm = nn.LayerNorm(hidden_size)
+            # self.layernorm = nn.LayerNorm(hidden_size)
             self.W = nn.Linear(hidden_size, attn_hidden_size, bias=True)
             self.v = nn.Linear(attn_hidden_size, 1, bias=False)
             self.dropout = nn.Dropout(dropout)
 
         def forward(self, hidden_states: torch.Tensor, attention_mask: torch.Tensor):
-            hidden_states = hidden_states.to(self.layernorm.weight.dtype)
-            hidden_states = self.layernorm(hidden_states) #进行层归一化
+            # hidden_states = hidden_states.to(self.layernorm.weight.dtype)
+            # hidden_states = self.layernorm(hidden_states) #进行层归一化
             hidden_states = hidden_states.to(self.W.weight.dtype)
             # hidden_states: (B, L, H); attention_mask: (B, L)
             scores = self.v(torch.tanh(self.W(hidden_states))).squeeze(-1)  # (B, L)
@@ -132,12 +132,18 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
 
     class DiscriminativeClassifier(nn.Module):
         def __init__(self, base_model: nn.Module, num_labels: int = 4,
-                     attn_hidden_size: int = 128, attn_dropout: float = 0.15):
+                     attn_hidden_size: int = 128, attn_dropout: float = 0.15, classifier_dropout = 0.2):
             super().__init__()
             self.base_model = base_model
             self.hidden_size = base_model.config.hidden_size
             self.pooler = AttentionPooling(self.hidden_size, attn_hidden_size, attn_dropout)
-            self.classifier = nn.Linear(self.hidden_size, num_labels)
+            # self.classifier = nn.Linear(self.hidden_size, num_labels)
+            self.classifier = nn.Sequential(
+                nn.Linear(self.hidden_size, self.hidden_size // 2),  # 隐藏层，保持同样的hidden size
+                nn.ReLU(),  # 激活函数
+                nn.Dropout(classifier_dropout),  # 插入一个固定Dropout
+                nn.Linear(self.hidden_size // 2, num_labels)  # 输出层
+            )
 
         def forward(
                 self,
@@ -378,8 +384,8 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
     if wandb.run is not None:
         wandb.finish()
     wandb.init(
-        project="medmcqa-attpooling-weightdecay-30k",
-        name=f"lr{learning_rate:.6f}_dropout{dropout:.3f}_alpha_{alpha:.3f}_seed{seed}_layernorm",
+        project="medmcqa-attpooling-mlp-30k",
+        name=f"lr{learning_rate:.6f}_dropout{dropout:.3f}_alpha_{alpha:.3f}_seed{seed}",
         config={
             "learning_rate": learning_rate,
             "dropout": dropout,
@@ -485,8 +491,7 @@ def log_final_accuracy_to_csv(epoch, lora_rank, dropout, lr, alpha,seed, accurac
 
 
 top_configs = [
-    {"lora_rank": 16, "dropout": 0.163, "lr": 7.7e-5,  "alpha": 0.44},
-
+    {"lora_rank": 16, "dropout": 0.163, "lr": 0.000060, "alpha": 0.44},
 ]
 seed_list = [42]
 
