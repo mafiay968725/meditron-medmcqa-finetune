@@ -314,7 +314,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
     ], lr=learning_rate)
 
     #学习率调度器
-    num_training_steps = 70000  # 根据实际步数进行调整
+    num_training_steps = 61000  # 根据实际步数进行调整
     num_warmup_steps = int(0.05 * num_training_steps)  # 通常设置为总步数的 5%
     # 创建调度器
     lr_scheduler = get_scheduler(
@@ -403,8 +403,11 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
                 if accuracy - best_accuracy >= 0.002:
                     best_accuracy = accuracy
                     no_improve_count = 0
-                    model.save_pretrained("/home/ubuntu/meditron-medmcqa-finetune/data/train_27/best",
-                                              safe_serialization=True)
+                    try:
+                        torch.save(model.state_dict(), "/home/ubuntu/meditron-medmcqa-finetune/data/train_27/best")
+                        print("✅ Model saved to /home/ubuntu/meditron-medmcqa-finetune/data/train_27/best")
+                    except Exception as e:
+                        print(f"⚠️ Failed to save model: {e}. Continuing without saving.")
                     tokenizer.save_pretrained("/home/ubuntu/meditron-medmcqa-finetune/data/train_27/tokenizer")
                 else:
                     no_improve_count += 1
