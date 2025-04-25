@@ -328,7 +328,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
     if wandb.run is not None:
         wandb.finish()
     wandb.init(
-        project="medmcqa-attpooling-mlp-180k",
+        project="medmcqa-attpooling-weightdecay-180k",
         name=f"lr{learning_rate:.6f}_dropout{dropout:.3f}_alpha_{alpha:.3f}_seed{seed}_lrsch",
         config={
             "learning_rate": learning_rate,
@@ -404,11 +404,11 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
                     best_accuracy = accuracy
                     no_improve_count = 0
                     try:
-                        torch.save(model.state_dict(), "/home/ubuntu/meditron-medmcqa-finetune/data/train_27/best")
-                        print("✅ Model saved to /home/ubuntu/meditron-medmcqa-finetune/data/train_27/best")
+                        torch.save(model.state_dict(), "/home/ubuntu/meditron-medmcqa-finetune/data/train_28/best")
+                        print("✅ Model saved to /home/ubuntu/meditron-medmcqa-finetune/data/train_28/best")
                     except Exception as e:
                         print(f"⚠️ Failed to save model: {e}. Continuing without saving.")
-                    tokenizer.save_pretrained("/home/ubuntu/meditron-medmcqa-finetune/data/train_27/tokenizer")
+                    tokenizer.save_pretrained("/home/ubuntu/meditron-medmcqa-finetune/data/train_28/tokenizer")
                 else:
                     no_improve_count += 1
                 wandb.log({
@@ -422,7 +422,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
                 model.train()
 
         if epoch >=0:
-            save_path = base_dir / "data" / "log" / "train_27.csv"
+            save_path = base_dir / "data" / "log" / "train_28.csv"
             dev_acc, probs, preds, gold, dev_loss = evaluate_on_dev(
                 model=model,
                 tokenizer=tokenizer,
@@ -437,7 +437,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
             }, step=global_step)
             log_final_accuracy_to_csv(epoch + 1, lora_rank, dropout, learning_rate, alpha, seed, dev_acc, save_path, 0)
 
-    save_path = base_dir / "data" / "log" / "train_27.csv"
+    save_path = base_dir / "data" / "log" / "train_28.csv"
     dev_acc, probs, preds, gold, dev_loss = evaluate_on_dev(
         model=model,
         tokenizer=tokenizer,
