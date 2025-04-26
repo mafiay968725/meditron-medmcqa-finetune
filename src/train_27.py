@@ -314,7 +314,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
     ], lr=learning_rate)
 
     #学习率调度器
-    num_training_steps = 61000  # 根据实际步数进行调整
+    num_training_steps = 97000  # 根据实际步数进行调整
     num_warmup_steps = int(0.05 * num_training_steps)  # 通常设置为总步数的 5%
     # 创建调度器
     lr_scheduler = get_scheduler(
@@ -339,15 +339,10 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
         settings=wandb.Settings(code_dir=".")  # 只跟踪代码，不自动同步大文件
     )
     # ✅ Training loop
-    epochs = 5
+    epochs = 8
     accumulation_steps = 5
     global_step = 0
     total_loss = 0.0
-
-    eval_interval = 2000  # 每多少 global_step 评估一次
-    early_stop_patience = 3
-    best_accuracy = -1  # 用来存储当前的最高准确率（在train_eval上）
-    no_improve_count = 0
 
     for epoch in range(epochs):
         model.train()
@@ -392,34 +387,6 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
                 avg_train_loss = total_loss / (wandb_save_step * accumulation_steps)
                 wandb.log({"train_loss": avg_train_loss}, step=global_step)
                 total_loss = 0.0
-            if epoch >= 2 and global_step % eval_interval == 0:
-                accuracy, probs, preds, gold, dev_loss = evaluate_on_dev(
-                    model=model,
-                    tokenizer=tokenizer,
-                    dev_dataset=dev_eval_subset,
-                    batch_size=3,
-                    device="cuda",
-                )
-                if accuracy - best_accuracy >= 0.002:
-                    best_accuracy = accuracy
-                    no_improve_count = 0
-                    try:
-                        torch.save(model.state_dict(), "/home/ubuntu/meditron-medmcqa-finetune/data/train_27/best")
-                        print("✅ Model saved to /home/ubuntu/meditron-medmcqa-finetune/data/train_27/best")
-                    except Exception as e:
-                        print(f"⚠️ Failed to save model: {e}. Continuing without saving.")
-                    tokenizer.save_pretrained("/home/ubuntu/meditron-medmcqa-finetune/data/train_27/tokenizer")
-                else:
-                    no_improve_count += 1
-                wandb.log({
-                    "dev_loss": dev_loss,
-                    "dev_acc": accuracy
-                }, step=global_step)
-                if no_improve_count >= early_stop_patience:
-                    print(f"🛑 触发 early stopping！连续 {early_stop_patience} 次 Dev Loss 未提升。")
-                    print(f"在dev_eval上最佳准确率:{best_accuracy}")
-                    break  # 跳出当前 epoch
-                model.train()
 
         if epoch >=0:
             save_path = base_dir / "data" / "log" / "train_27.csv"
@@ -436,26 +403,33 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
                 "dev_acc": dev_acc
             }, step=global_step)
             log_final_accuracy_to_csv(epoch + 1, lora_rank, dropout, learning_rate, alpha, seed, dev_acc, save_path, 0)
+        if epoch >= 2:
+            try:
+                save_dir = "/home/ubuntu/meditron-medmcqa-finetune/data/train_27"
+                os.makedirs(save_dir, exist_ok=True)
+                save_path = os.path.join(save_dir, str(epoch + 1))
+                torch.save(model.state_dict(), save_path)
+                print(f"✅ Model saved to {save_path}")
+            except Exception as e:
+                print(f"⚠️ Failed to save model: {e}. Continuing without saving.")
+            dev_acc, probs, preds, gold, dev_loss = evaluate_on_dev(
+                model=model,
+                tokenizer=tokenizer,
+                dev_dataset=dev_final_subset,
+                batch_size=3,
+                device="cuda",
+            )
+            wandb.log({
+                "final_acc": dev_acc
+            }, step=global_step)
+            print(
+                f"Final accuracy: {dev_acc:.4f} | "
+                f"dropout={dropout:.3f}, "
+                f"lr={learning_rate:.6f}, "
+                f"alpha={alpha:.3f}, "
+                f"seed={seed}"
+            )
 
-    save_path = base_dir / "data" / "log" / "train_27.csv"
-    dev_acc, probs, preds, gold, dev_loss = evaluate_on_dev(
-        model=model,
-        tokenizer=tokenizer,
-        dev_dataset=dev_dataset,
-        batch_size=3,
-        device="cuda",
-    )
-    wandb.log({
-        "final_acc": dev_acc
-    }, step=global_step)
-    print(
-        f"Final accuracy: {dev_acc:.4f} | "
-        f"dropout={dropout:.3f}, "
-        f"lr={learning_rate:.6f}, "
-        f"alpha={alpha:.3f}, "
-        f"seed={seed}"
-    )
-    log_final_accuracy_to_csv(epoch + 1, lora_rank, dropout, learning_rate, alpha, seed, dev_acc, save_path, 1)
     return dev_acc
 
 
