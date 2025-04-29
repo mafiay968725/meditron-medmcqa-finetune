@@ -404,7 +404,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
                 optimizer.zero_grad()
                 global_step += 1
 
-            wandb_save_step = 400
+            wandb_save_step = 80
             if global_step % wandb_save_step == 0 and global_step != 0:
                 avg_train_loss = total_loss / (wandb_save_step * accumulation_steps)
                 wandb.log({"train_loss": avg_train_loss}, step=global_step)
@@ -468,9 +468,8 @@ def log_final_accuracy_to_csv(epoch, lora_rank, dropout, lr, alpha,seed, accurac
 
 
 top_configs = [
-  {"lora_rank": 16, "dropout": 0.163, "lr": 0.000065, "alpha": 0.40},
-  {"lora_rank": 16, "dropout": 0.163, "lr": 0.000070, "alpha": 0.44},
-  {"lora_rank": 16, "dropout": 0.163, "lr": 0.000080, "alpha": 0.48}
+  {"lora_rank": 16, "dropout": 0.163, "lr": 0.000055, "alpha": 0.20},
+  {"lora_rank": 16, "dropout": 0.163, "lr": 0.000050, "alpha": 0.0},
 ]
 seed_list = [42]
 
