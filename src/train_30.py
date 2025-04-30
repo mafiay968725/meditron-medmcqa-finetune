@@ -457,7 +457,6 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
     del tokenizer
     # 清空缓存
     import gc
-    import torch
     gc.collect()
     torch.cuda.empty_cache()
     return dev_acc
