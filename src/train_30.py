@@ -452,6 +452,14 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
                 f"seed={seed}"
             )
 
+    del model
+    del base_causal_lm
+    del tokenizer
+    # 清空缓存
+    import gc
+    import torch
+    gc.collect()
+    torch.cuda.empty_cache()
     return dev_acc
 
 
@@ -468,7 +476,6 @@ def log_final_accuracy_to_csv(epoch, lora_rank, dropout, lr, alpha,seed, accurac
 
 
 top_configs = [
-  {"lora_rank": 16, "dropout": 0.163, "lr": 0.000055, "alpha": 0.20},
   {"lora_rank": 16, "dropout": 0.163, "lr": 0.000050, "alpha": 0.0},
 ]
 seed_list = [42]
