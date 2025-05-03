@@ -45,7 +45,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
         - output : 融合后的 pooled 向量                      (B, H)
         """
 
-        def __init__(self, hidden_size: int, dropout: float = 0.15):
+        def __init__(self, hidden_size: int, dropout: float = 0.2):
             super().__init__()
             self.q_proj = nn.Linear(hidden_size, hidden_size, bias=True)
             self.k_proj = nn.Linear(hidden_size, hidden_size, bias=True)
@@ -329,8 +329,8 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
         else:
             decay_rest.append(param)  # LoRA + 主干结构
     optimizer = AdamW([
-        {"params": decay_rest, "weight_decay": 0.01},  # 主干/LoRA部分
-        {"params": decay_classifier, "weight_decay": 0.01},  # 分类层强正则
+        {"params": decay_rest, "weight_decay": 0.02},  # 主干/LoRA部分
+        {"params": decay_classifier, "weight_decay": 0.02},  # 分类层
         {"params": no_decay, "weight_decay": 0.0}  # 常规例外
     ], lr=learning_rate)
 
@@ -350,7 +350,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
         wandb.finish()
     wandb.init(
         project="medmcqa-newattpooling-mlp-180k",
-        name=f"lr{learning_rate:.6f}_dropout{dropout:.3f}_alpha_{alpha:.3f}_seed{seed}_lrsch",
+        name=f"lr{learning_rate:.6f}_dropout{dropout:.3f}_alpha_{alpha:.3f}_seed{seed}_lrsch_highdropdecay",
         config={
             "learning_rate": learning_rate,
             "dropout": dropout,
