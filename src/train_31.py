@@ -85,7 +85,7 @@ def train_model(lora_rank=8, dropout=0.1, learning_rate=1e-4, alpha = 0.5, seed 
 
     class DiscriminativeClassifier(nn.Module):
         def __init__(self, base_model: nn.Module, num_labels: int = 4,
-                     attn_dropout: float = 0.15, classifier_dropout = 0.2):
+                     attn_dropout: float = 0.2, classifier_dropout = 0.2):
             super().__init__()
             self.base_model = base_model
             self.hidden_size = base_model.config.hidden_size
